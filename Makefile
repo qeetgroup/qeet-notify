@@ -46,7 +46,7 @@ dev: ## Run API server in dev mode (hot reload requires air)
 
 dev-backend: dev ## Alias for dev
 
-dev-console: ## Start Next.js console (:3010)
+dev-console: ## Start Next.js console
 	cd apps/console && pnpm dev
 
 # ── Test ───────────────────────────────────────────────────────────────────────
