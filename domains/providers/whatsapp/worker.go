@@ -34,6 +34,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       60 * time.Second,
 		MaxAckPending: 50,
+		MaxDeliver:    messaging.DefaultMaxDeliver,
 	})
 	if err != nil {
 		return fmt.Errorf("create whatsapp consumer: %w", err)
@@ -64,7 +65,7 @@ func (w *Worker) Run(ctx context.Context) error {
 
 		if err := w.handle(ctx, msg); err != nil {
 			w.log.Error().Err(err).Msg("handle whatsapp job")
-			msg.Nak() //nolint:errcheck
+			messaging.HandleFailure(ctx, w.js, msg, messaging.DefaultMaxDeliver, err, w.log)
 		} else {
 			msg.Ack() //nolint:errcheck
 		}

@@ -36,14 +36,16 @@ type Worker struct {
 	pool   *pgxpool.Pool
 	js     jetstream.JetStream
 	client *http.Client
+	encKey string // pgcrypto key for decrypting provider config
 	log    zerolog.Logger
 }
 
-func NewWorker(pool *pgxpool.Pool, js jetstream.JetStream, log zerolog.Logger) *Worker {
+func NewWorker(pool *pgxpool.Pool, js jetstream.JetStream, encKey string, log zerolog.Logger) *Worker {
 	return &Worker{
 		pool:   pool,
 		js:     js,
 		client: &http.Client{Timeout: 15 * time.Second},
+		encKey: encKey,
 		log:    log,
 	}
 }
@@ -85,8 +87,8 @@ func (w *Worker) Run(ctx context.Context) error {
 
 		if err := w.handle(ctx, msg); err != nil {
 			w.log.Error().Err(err).Msg("handle webhook job")
-			// Exponential backoff via NATS AckWait — just nak.
-			msg.Nak() //nolint:errcheck
+			// Backoff via NATS redelivery; dead-letter after maxRetries attempts.
+			messaging.HandleFailure(ctx, w.js, msg, maxRetries, err, w.log)
 		} else {
 			msg.Ack() //nolint:errcheck
 		}
@@ -99,19 +101,18 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 		return fmt.Errorf("unmarshal webhook job: %w", err)
 	}
 
-	// Load webhook endpoint config for this tenant.
-	var configEnc string
+	// Load + decrypt webhook endpoint config for this tenant.
+	var configJSON string
 	if err := w.pool.QueryRow(ctx,
-		`SELECT config_encrypted FROM provider_configs
+		`SELECT notify_decrypt(config_encrypted, $2) FROM provider_configs
 		 WHERE tenant_id = $1 AND channel = 'webhook' AND is_active
 		 ORDER BY priority LIMIT 1`,
-		job.TenantID,
-	).Scan(&configEnc); err != nil {
+		job.TenantID, w.encKey,
+	).Scan(&configJSON); err != nil {
 		return fmt.Errorf("fetch webhook config: %w", err)
 	}
-	// TODO: decrypt configEnc; using plaintext JSON in dev.
 	var cfg endpointConfig
-	if err := json.Unmarshal([]byte(configEnc), &cfg); err != nil {
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		return fmt.Errorf("parse webhook config: %w", err)
 	}
 

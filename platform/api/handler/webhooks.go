@@ -16,7 +16,7 @@ import (
 
 // InboundEmailWebhook handles provider delivery/bounce/complaint callbacks.
 // Supports: ses, resend.
-func InboundEmailWebhook(pool *pgxpool.Pool) http.HandlerFunc {
+func InboundEmailWebhook(pool *pgxpool.Pool, encKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		provider := chi.URLParam(r, "provider")
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MB max
@@ -37,7 +37,7 @@ func InboundEmailWebhook(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 
-		go processEmailEvent(context.Background(), pool, provider, providerMsgID, eventType)
+		go processEmailEvent(context.Background(), pool, encKey, provider, providerMsgID, eventType)
 
 		w.WriteHeader(http.StatusOK)
 	}
@@ -90,17 +90,18 @@ func extractEmailEvent(provider string, payload map[string]any) (eventType, msgI
 	return "", ""
 }
 
-func processEmailEvent(ctx context.Context, pool *pgxpool.Pool, provider, providerMsgID, eventType string) {
-	// Look up the notification by provider_message_id.
-	var notifID, tenantID, subscriberID, emailEnc string
+func processEmailEvent(ctx context.Context, pool *pgxpool.Pool, encKey, provider, providerMsgID, eventType string) {
+	// Look up the notification by provider_message_id. Decrypt the email so the
+	// suppression hash is computed over plaintext (matching preferences.hashValue).
+	var notifID, tenantID, subscriberID, emailPlain string
 	err := pool.QueryRow(ctx,
-		`SELECT n.id, n.tenant_id, n.subscriber_id, COALESCE(s.email_encrypted,'')
+		`SELECT n.id, n.tenant_id, n.subscriber_id, COALESCE(notify_decrypt(s.email_encrypted, $3), '')
 		 FROM notifications n
 		 LEFT JOIN subscribers s ON s.id = n.subscriber_id
 		 WHERE n.provider_message_id = $1 AND n.provider = $2
 		 LIMIT 1`,
-		providerMsgID, provider,
-	).Scan(&notifID, &tenantID, &subscriberID, &emailEnc)
+		providerMsgID, provider, encKey,
+	).Scan(&notifID, &tenantID, &subscriberID, &emailPlain)
 	if err != nil {
 		log.Error().Err(err).Str("provider_msg_id", providerMsgID).Msg("webhook: notification not found")
 		return
@@ -114,8 +115,8 @@ func processEmailEvent(ctx context.Context, pool *pgxpool.Pool, provider, provid
 	)
 
 	// Hard bounces and spam complaints → add to suppressions.
-	if (eventType == "bounced" || eventType == "complained") && emailEnc != "" {
-		hash := sha256.Sum256([]byte(emailEnc))
+	if (eventType == "bounced" || eventType == "complained") && emailPlain != "" {
+		hash := sha256.Sum256([]byte(emailPlain))
 		reason := "hard_bounce"
 		if eventType == "complained" {
 			reason = "spam_complaint"

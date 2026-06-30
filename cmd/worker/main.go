@@ -67,7 +67,7 @@ func main() {
 			fallback = email.NewResend(cfg.ResendAPIKey)
 		}
 
-		w := email.NewWorker(pool, nc.JS, primary, fallback, log)
+		w := email.NewWorker(pool, nc.JS, primary, fallback, cfg.EncryptionKey, log)
 		if err := w.Run(ctx); err != nil {
 			log.Fatal().Err(err).Msg("email worker")
 		}
@@ -83,7 +83,7 @@ func main() {
 		if cfg.TwoFactorKey != "" && primary.Name() != "2factor" {
 			fallback = sms.NewTwoFactor(cfg.TwoFactorKey)
 		}
-		w := sms.NewWorker(pool, nc.JS, primary, fallback, log)
+		w := sms.NewWorker(pool, nc.JS, primary, fallback, cfg.EncryptionKey, log)
 		if err := w.Run(ctx); err != nil {
 			log.Fatal().Err(err).Msg("sms worker")
 		}
@@ -112,7 +112,7 @@ func main() {
 		}
 
 	case "webhook":
-		w := webhook.NewWorker(pool, nc.JS, log)
+		w := webhook.NewWorker(pool, nc.JS, cfg.EncryptionKey, log)
 		if err := w.Run(ctx); err != nil {
 			log.Fatal().Err(err).Msg("webhook worker")
 		}

@@ -89,7 +89,7 @@ func main() {
 	})
 
 	api.Get("/v1/unsubscribe", handler.Unsubscribe(pool))
-	api.Post("/v1/webhooks/email/{provider}", handler.InboundEmailWebhook(pool))
+	api.Post("/v1/webhooks/email/{provider}", handler.InboundEmailWebhook(pool, cfg.EncryptionKey))
 
 	// SSE router (8082) — unauthenticated, infinite timeouts for streaming.
 	sse := chi.NewRouter()

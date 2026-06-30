@@ -25,11 +25,12 @@ type Worker struct {
 	js       jetstream.JetStream
 	primary  Provider
 	fallback Provider
+	encKey   string // pgcrypto key for decrypting subscriber PII
 	log      zerolog.Logger
 }
 
-func NewWorker(pool *pgxpool.Pool, js jetstream.JetStream, primary, fallback Provider, log zerolog.Logger) *Worker {
-	return &Worker{pool: pool, js: js, primary: primary, fallback: fallback, log: log}
+func NewWorker(pool *pgxpool.Pool, js jetstream.JetStream, primary, fallback Provider, encKey string, log zerolog.Logger) *Worker {
+	return &Worker{pool: pool, js: js, primary: primary, fallback: fallback, encKey: encKey, log: log}
 }
 
 func (w *Worker) Run(ctx context.Context) error {
@@ -38,6 +39,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       60 * time.Second,
 		MaxAckPending: 50,
+		MaxDeliver:    messaging.DefaultMaxDeliver,
 	})
 	if err != nil {
 		return fmt.Errorf("create sms consumer: %w", err)
@@ -71,9 +73,9 @@ func (w *Worker) Run(ctx context.Context) error {
 			msg.Ack() //nolint:errcheck
 		} else if !errors.Is(err, errDeferred) {
 			w.log.Error().Err(err).Msg("handle sms job")
-			msg.Nak() //nolint:errcheck
+			messaging.HandleFailure(ctx, w.js, msg, messaging.DefaultMaxDeliver, err, w.log)
 		}
-		// errDeferred: handle already called Nak; nothing to do here.
+		// errDeferred: handle already called NakWithDelay; nothing to do here.
 	}
 }
 
@@ -83,14 +85,13 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 		return fmt.Errorf("unmarshal sms job: %w", err)
 	}
 
-	var phoneEnc string
+	var phone string
 	if err := w.pool.QueryRow(ctx,
-		`SELECT COALESCE(phone_encrypted,'') FROM subscribers WHERE id = $1 AND tenant_id = $2`,
-		job.SubscriberID, job.TenantID,
-	).Scan(&phoneEnc); err != nil || phoneEnc == "" {
+		`SELECT COALESCE(notify_decrypt(phone_encrypted, $3), '') FROM subscribers WHERE id = $1 AND tenant_id = $2`,
+		job.SubscriberID, job.TenantID, w.encKey,
+	).Scan(&phone); err != nil || phone == "" {
 		return fmt.Errorf("fetch subscriber phone: %w", err)
 	}
-	phone := phoneEnc // TODO: pgp_sym_decrypt in production
 
 	_, tmplBody, err := rendering.Fetch(ctx, w.pool, job.TenantID, job.TemplateID)
 	if err != nil {
@@ -116,14 +117,12 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 	var category string
 	w.pool.QueryRow(ctx, `SELECT category FROM dlt_templates WHERE id = $1`, matchedDLTID).Scan(&category) //nolint:errcheck
 	if category == "promotional" && !dlt.IsPromotionalWindowOpen() {
-		resumeAt := dlt.ResumeAtNextWindow()
-		w.log.Info().Time("resume_at", resumeAt).Msg("promotional SMS deferred")
-		w.pool.Exec(ctx, //nolint:errcheck
-			`UPDATE workflow_runs SET resume_at = $1, updated_at = NOW()
-			 WHERE id = (SELECT workflow_run_id FROM notifications WHERE id = $2 LIMIT 1)`,
-			resumeAt, job.NotificationID,
-		)
-		msg.Nak() //nolint:errcheck
+		// Defer at the NATS layer: redeliver this exact job when the window opens.
+		// Avoids mutating workflow_runs (which the scheduler now owns) and the
+		// duplicate-notification risk of re-driving the whole workflow.
+		delay := time.Until(dlt.ResumeAtNextWindow())
+		w.log.Info().Dur("delay", delay).Msg("promotional SMS deferred to next window")
+		msg.NakWithDelay(delay) //nolint:errcheck
 		return errDeferred
 	}
 
@@ -179,40 +178,4 @@ func (w *Worker) recordDelivery(ctx context.Context, job engine.ChannelJob, even
 		"provider":        provider,
 	})
 	_, _ = w.js.Publish(ctx, messaging.DeliverySubject(job.TenantID), payload)
-}
-
-// DelayTicker re-dispatches workflow runs whose resume_at has passed.
-func DelayTicker(ctx context.Context, pool *pgxpool.Pool, js jetstream.JetStream, log zerolog.Logger) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			requeue(ctx, pool, js, log)
-		}
-	}
-}
-
-func requeue(ctx context.Context, pool *pgxpool.Pool, js jetstream.JetStream, log zerolog.Logger) {
-	rows, err := pool.Query(ctx,
-		`SELECT id, tenant_id FROM workflow_runs
-		 WHERE status = 'running' AND resume_at IS NOT NULL AND resume_at <= NOW()
-		 LIMIT 50`,
-	)
-	if err != nil {
-		log.Error().Err(err).Msg("delay ticker query")
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var runID, tenantID string
-		if err := rows.Scan(&runID, &tenantID); err != nil {
-			continue
-		}
-		payload, _ := json.Marshal(map[string]string{"workflow_run_id": runID, "tenant_id": tenantID})
-		_, _ = js.Publish(ctx, messaging.EventSubject(tenantID), payload)
-		pool.Exec(ctx, `UPDATE workflow_runs SET resume_at = NULL, updated_at = NOW() WHERE id = $1`, runID) //nolint:errcheck
-	}
 }

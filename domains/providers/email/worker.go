@@ -21,11 +21,12 @@ type Worker struct {
 	js       jetstream.JetStream
 	primary  Provider
 	fallback Provider // used when primary fails; may be nil
+	encKey   string   // pgcrypto key for decrypting subscriber PII
 	log      zerolog.Logger
 }
 
-func NewWorker(pool *pgxpool.Pool, js jetstream.JetStream, primary, fallback Provider, log zerolog.Logger) *Worker {
-	return &Worker{pool: pool, js: js, primary: primary, fallback: fallback, log: log}
+func NewWorker(pool *pgxpool.Pool, js jetstream.JetStream, primary, fallback Provider, encKey string, log zerolog.Logger) *Worker {
+	return &Worker{pool: pool, js: js, primary: primary, fallback: fallback, encKey: encKey, log: log}
 }
 
 func (w *Worker) Run(ctx context.Context) error {
@@ -34,6 +35,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       60 * time.Second,
 		MaxAckPending: 50,
+		MaxDeliver:    messaging.DefaultMaxDeliver,
 	})
 	if err != nil {
 		return fmt.Errorf("create email consumer: %w", err)
@@ -64,7 +66,7 @@ func (w *Worker) Run(ctx context.Context) error {
 
 		if err := w.handle(ctx, msg); err != nil {
 			w.log.Error().Err(err).Msg("handle email job")
-			msg.Nak() //nolint:errcheck
+			messaging.HandleFailure(ctx, w.js, msg, messaging.DefaultMaxDeliver, err, w.log)
 		} else {
 			msg.Ack() //nolint:errcheck
 		}
@@ -77,18 +79,15 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 		return fmt.Errorf("unmarshal job: %w", err)
 	}
 
-	// Fetch subscriber email from DB.
-	var emailEnc string
+	// Fetch + decrypt subscriber email from DB.
+	var toEmail string
 	err := w.pool.QueryRow(ctx,
-		`SELECT COALESCE(email_encrypted, '') FROM subscribers WHERE id = $1 AND tenant_id = $2`,
-		job.SubscriberID, job.TenantID,
-	).Scan(&emailEnc)
-	if err != nil || emailEnc == "" {
+		`SELECT COALESCE(notify_decrypt(email_encrypted, $3), '') FROM subscribers WHERE id = $1 AND tenant_id = $2`,
+		job.SubscriberID, job.TenantID, w.encKey,
+	).Scan(&toEmail)
+	if err != nil || toEmail == "" {
 		return fmt.Errorf("fetch subscriber email: %w", err)
 	}
-	// TODO: decrypt emailEnc using pgp_sym_decrypt in a DB query with enc_key.
-	// For now treat as plaintext in dev (migration adds encryption later).
-	toEmail := emailEnc
 
 	rendered, err := rendering.RenderEmail(ctx, w.pool, job.TenantID, job.TemplateID, job.Payload)
 	if err != nil {
