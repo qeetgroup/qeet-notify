@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/qeetgroup/qeet-notify/domains/workflows/engine"
+	"github.com/qeetgroup/qeet-notify/platform/messaging"
 )
 
 // Worker consumes NOTIFY_INAPP jobs, persists them to the DB,
@@ -33,6 +34,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       30 * time.Second,
 		MaxAckPending: 100,
+		MaxDeliver:    messaging.DefaultMaxDeliver,
 	})
 	if err != nil {
 		return fmt.Errorf("create inapp consumer: %w", err)
@@ -63,7 +65,7 @@ func (w *Worker) Run(ctx context.Context) error {
 
 		if err := w.handle(ctx, msg); err != nil {
 			w.log.Error().Err(err).Msg("handle inapp job")
-			msg.Nak() //nolint:errcheck
+			messaging.HandleFailure(ctx, w.js, msg, messaging.DefaultMaxDeliver, err, w.log)
 		} else {
 			msg.Ack() //nolint:errcheck
 		}

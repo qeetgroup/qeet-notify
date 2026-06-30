@@ -28,7 +28,8 @@ type qeetIDUserEvent struct {
 }
 
 // Federate subscribes to qeet-id NATS events and mirrors users as subscribers.
-func Federate(ctx context.Context, pool *pgxpool.Pool, js jetstream.JetStream, log zerolog.Logger) error {
+// encKey is the pgcrypto key used to encrypt subscriber email/phone at rest.
+func Federate(ctx context.Context, pool *pgxpool.Pool, js jetstream.JetStream, encKey string, log zerolog.Logger) error {
 	// Use a core NATS subscription (not JetStream) since qeet-id publishes on core.
 	// If qeet-id is co-located, this is a no-op — federation is best-effort.
 	log.Info().Msg("subscriber federation: listening for qeet-id user events")
@@ -76,7 +77,7 @@ func Federate(ctx context.Context, pool *pgxpool.Pool, js jetstream.JetStream, l
 		subject := msg.Subject()
 		switch {
 		case matchesSuffix(subject, "user.created"), matchesSuffix(subject, "user.updated"):
-			upsertSubscriber(ctx, pool, ev, log)
+			upsertSubscriber(ctx, pool, ev, encKey, log)
 		case matchesSuffix(subject, "user.deleted"):
 			softDeleteSubscriber(ctx, pool, ev.TenantID, ev.UserID, log)
 		}
@@ -84,7 +85,7 @@ func Federate(ctx context.Context, pool *pgxpool.Pool, js jetstream.JetStream, l
 	}
 }
 
-func upsertSubscriber(ctx context.Context, pool *pgxpool.Pool, ev qeetIDUserEvent, log zerolog.Logger) {
+func upsertSubscriber(ctx context.Context, pool *pgxpool.Pool, ev qeetIDUserEvent, encKey string, log zerolog.Logger) {
 	locale := ev.Locale
 	if locale == "" {
 		locale = "en"
@@ -95,14 +96,17 @@ func upsertSubscriber(ctx context.Context, pool *pgxpool.Pool, ev qeetIDUserEven
 	}
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO subscribers (tenant_id, external_id, email_encrypted, phone_encrypted, locale, timezone)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		 VALUES ($1, $2,
+		         CASE WHEN $3::text IS NULL THEN NULL ELSE pgp_sym_encrypt($3::text, $7)::text END,
+		         CASE WHEN $4::text IS NULL THEN NULL ELSE pgp_sym_encrypt($4::text, $7)::text END,
+		         $5, $6)
 		 ON CONFLICT (tenant_id, external_id) DO UPDATE
 		   SET email_encrypted = EXCLUDED.email_encrypted,
 		       phone_encrypted = EXCLUDED.phone_encrypted,
 		       locale          = EXCLUDED.locale,
 		       timezone        = EXCLUDED.timezone,
 		       updated_at      = NOW()`,
-		ev.TenantID, ev.UserID, nilStr(ev.Email), nilStr(ev.Phone), locale, tz,
+		ev.TenantID, ev.UserID, nilStr(ev.Email), nilStr(ev.Phone), locale, tz, encKey,
 	); err != nil {
 		log.Error().Err(err).Str("user_id", ev.UserID).Msg("federation upsert failed")
 	}
