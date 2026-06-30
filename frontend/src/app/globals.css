@@ -1,0 +1,12 @@
+@import "@qeetrix/ui/tokens.css";
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  background: var(--color-background);
+  color: var(--color-foreground);
+}

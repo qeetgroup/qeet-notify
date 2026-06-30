@@ -1,0 +1,110 @@
+services:
+  api:
+    image: ghcr.io/qeetgroup/qeet-notify-api:latest
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - nats
+      - redis
+    command: []
+
+  worker-email:
+    image: ghcr.io/qeetgroup/qeet-notify-worker:latest
+    restart: unless-stopped
+    env_file: .env
+    command: ["-channel=email"]
+    depends_on: [postgres, nats, redis]
+
+  worker-sms:
+    image: ghcr.io/qeetgroup/qeet-notify-worker:latest
+    restart: unless-stopped
+    env_file: .env
+    command: ["-channel=sms"]
+    depends_on: [postgres, nats, redis]
+
+  worker-whatsapp:
+    image: ghcr.io/qeetgroup/qeet-notify-worker:latest
+    restart: unless-stopped
+    env_file: .env
+    command: ["-channel=whatsapp"]
+    depends_on: [postgres, nats, redis]
+
+  worker-inapp:
+    image: ghcr.io/qeetgroup/qeet-notify-worker:latest
+    restart: unless-stopped
+    env_file: .env
+    command: ["-channel=inapp"]
+    depends_on: [postgres, nats, redis]
+
+  worker-webhook:
+    image: ghcr.io/qeetgroup/qeet-notify-worker:latest
+    restart: unless-stopped
+    env_file: .env
+    command: ["-channel=webhook"]
+    depends_on: [postgres, nats, redis]
+
+  workflow:
+    image: ghcr.io/qeetgroup/qeet-notify-workflow:latest
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [postgres, nats]
+
+  sse:
+    image: ghcr.io/qeetgroup/qeet-notify-sse:latest
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8082:8082"
+    depends_on: [postgres, redis]
+
+  analytics:
+    image: ghcr.io/qeetgroup/qeet-notify-analytics:latest
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "9090:9090"
+    depends_on: [postgres, nats]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  postgres:
+    image: timescale/timescaledb:latest-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: qeet-notify
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: qeet-notify
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  nats:
+    image: nats:2.10-alpine
+    restart: unless-stopped
+    command: ["--jetstream", "--store_dir=/data"]
+    volumes:
+      - nats_data:/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+volumes:
+  pg_data:
+  nats_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

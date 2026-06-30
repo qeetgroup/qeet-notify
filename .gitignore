@@ -1,0 +1,41 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test cache
+*.test
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Frontend
+node_modules/
+frontend/.next/
+frontend/dist/
+frontend/.turbo/
+.pnpm-store/
+
+# Build artefacts
+dist/
+caddy_data/
+caddy_config/

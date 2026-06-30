@@ -1,0 +1,15 @@
+notify.api.qeet.in {
+    reverse_proxy api:8080
+}
+
+notify.sse.qeet.in {
+    reverse_proxy sse:8082 {
+        flush_interval -1
+    }
+}
+
+app.notify.qeet.in {
+    root * /srv/dashboard
+    file_server
+    try_files {path} /index.html
+}
