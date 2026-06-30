@@ -1,6 +1,6 @@
-# qeet-notify
+# CLAUDE.md
 
-Multi-channel transactional notification platform. Go 1.25 + chi v5 + PostgreSQL 17 + NATS JetStream 2.10 + Redis 7.
+`qeet-notify` is the **Qeet Notify** multi-channel transactional notification platform.
 
 PRD: [../qeet-files/qeet-notify/Product_Requirement_Document.md](../qeet-files/qeet-notify/Product_Requirement_Document.md)  
 TAD: [../qeet-files/qeet-notify/Technical_Architecture_Document.md](../qeet-files/qeet-notify/Technical_Architecture_Document.md)
@@ -9,22 +9,22 @@ TAD: [../qeet-files/qeet-notify/Technical_Architecture_Document.md](../qeet-file
 
 ```bash
 # Prerequisites (run once)
-nvm use node   # Node >=25 for frontend
-make infra-up  # Start Postgres, NATS, Redis, MinIO via Docker
+nvm use node   # Node >=25 for apps/console
+make infra-up  # Start Postgres, NATS, Redis via Docker
 
 # Copy and populate .env
 cp .env.example .env
 
 # Database
 make migrate-up    # Apply all pending migrations
-make db-up         # Alias for docker-compose up postgres
 make db-reset      # Drop + recreate + migrate-up (dev only)
 
 # Development
-make dev           # Run qeet-notify-api with live reload
+make dev           # Run qeet-notify-server with live reload
+make dev-console   # Start Next.js console on :3010
 
 # Build
-make build         # Build all binaries to bin/
+make build         # Build all Go binaries to bin/
 
 # Test
 make test                  # Unit tests
@@ -44,29 +44,65 @@ make migrate-version
 
 ```
 cmd/
-  server/      → qeet-notify-api        (HTTP API)
-  worker/      → qeet-notify-worker     (-channel=email|sms|whatsapp|push|webhook)
-  workflow/    → qeet-notify-workflow   (DAG engine; consumes NATS NOTIFY_EVENTS)
-  sse/         → qeet-notify-sse        (SSE long-poll; scales independently)
-  analytics/   → qeet-notify-analytics  (aggregates delivery_events → TimescaleDB)
-  migrate/     → qeet-notify-migrate    (golang-migrate CLI runner)
+  server/      → qeet-notify-server    (HTTP API :8080 + SSE :8082 in one binary)
+  worker/      → qeet-notify-worker    (-channel=email|sms|whatsapp|inapp|webhook)
+  scheduler/   → qeet-notify-scheduler (delay/retry ticker — stub, coming soon)
+  workflow/    → qeet-notify-workflow  (DAG engine; consumes NATS NOTIFY_EVENTS)
+  analytics/   → qeet-notify-analytics (aggregates delivery_events → TimescaleDB)
+  migrate/     → qeet-notify-migrate   (golang-migrate CLI runner)
 
-internal/
-  api/          handler/ + middleware/
-  workflow/     DAG executor + delay scheduler (Redis sorted set)
-  channels/     email/ sms/ whatsapp/ push/ inapp/ webhook/
-  subscriber/   CRUD + Qeet ID federation
-  template/     Handlebars rendering + locale resolution
-  preference/   Opt-out matrix; suppression enforcement
-  analytics/    TimescaleDB hypertable helpers
-  india/        TRAI DLT regex matching, NDNC Bloom filter, DPDP erasure
-  platform/     db/ nats/ cache/ config/ logger/ metrics/
+domains/                   Business logic — bounded contexts
+  analytics/               Delivery aggregation, Prometheus, TimescaleDB queries
+  compliance/dlt/          TRAI DLT regex matching, promotional window, NDNC
+  providers/
+    email/                 SES + Resend providers + NOTIFY_EMAIL worker
+    sms/                   MSG91 + 2Factor providers + NOTIFY_SMS worker
+    whatsapp/              Meta Cloud API + NOTIFY_WHATSAPP worker
+    inapp/                 NOTIFY_INAPP worker (Redis pub/sub fan-out)
+    webhook/               Outbound HMAC-signed webhook worker
+  subscribers/
+    federation/            Qeet ID user-event → subscriber sync
+    preferences/           Opt-in/out matrix + DPDP erasure
+  templates/rendering/     Handlebars template fetch + render
+  workflows/engine/        DAG executor + delay step support
 
-migrations/     SQL pairs: 0001_*.up.sql / 0001_*.down.sql (never edit applied)
-frontend/       Next.js 16 dashboard (pnpm workspace)
-sdk/go/         Go SDK
-sdk/typescript/ @qeet-notify/node + @qeet-notify/react
-cli/            `qn` cobra CLI
+platform/                  Shared infrastructure (no business logic)
+  api/handler/             HTTP route handlers
+  api/middleware/          Auth (API key → tenant), rate-limit, OIDC dashboard auth
+  cache/                   Redis client
+  config/                  envconfig loader
+  database/                pgxpool + tenant RLS helper (WithTenant)
+  messaging/               NATS JetStream client + stream definitions
+  observability/           zerolog logger
+  events/                  (stub — shared event type contracts)
+  security/                (stub — HMAC/crypto helpers)
+  storage/                 (stub — MinIO client)
+
+apps/console/              Next.js 16 dashboard (:3010)
+
+sdk/go/                    Public Go SDK
+sdk/node/                  @qeet-notify/node TypeScript SDK
+sdk/python/                (stub)
+sdk/java/                  (stub)
+
+packages/                  JS monorepo packages (stubs)
+  ui/                      @qeet-notify/ui
+  design-system/           @qeet-notify/design-system
+  api-client/              @qeet-notify/api-client
+  shared-types/            @qeet-notify/shared-types
+  notification-sdk/        @qeet-notify/notification-sdk
+
+api/openapi/               OpenAPI 3.1 spec (v1.yaml)
+api/postman/               Postman collection (stub)
+api/contracts/             API contract tests (stub)
+
+migrations/                SQL pairs: 0001_*.up.sql / 0001_*.down.sql (never edit applied)
+tests/integration/         Integration test suites
+tests/e2e/                 End-to-end tests
+tests/performance/         Load / performance tests
+tests/architecture/        Architectural fitness functions
+tools/                     Codegen, linting helpers
+docs/                      Internal documentation
 ```
 
 ## Key conventions
@@ -76,17 +112,21 @@ cli/            `qn` cobra CLI
 - **Migrations**: sequential integers, immutable once applied. Run `make migrate-up` after pull.
 - **PII encryption**: `pgp_sym_encrypt(value, current_setting('app.enc_key'))` for email/phone in DB.
 - **India DLT**: every outbound SMS must match a stored `dlt_templates.regex`; promotional window 10:00–21:00 IST.
+- **SSE**: runs on port 8082 inside the same `cmd/server` binary (infinite read/write timeouts for streaming).
 
 ## Infrastructure ports (local dev)
 
 | Service | Port |
 |---|---|
-| qeet-notify-api | 8080 |
+| qeet-notify-server (API) | 8080 |
+| qeet-notify-server (SSE) | 8082 |
+| qeet-notify console | 3010 |
 | PostgreSQL 17 | 5433 |
 | NATS | 4222 / 8222 (monitor) |
 | Redis 7 | 6379 |
-| MinIO | 9000 / 9001 (console) |
+| Prometheus metrics | 9090 |
 
 ## Deployment
 
-See [deploy/](deploy/) — mirrors qeet-id deploy pattern: GHCR + SSH + `docker compose up -d`.
+See [deploy/](deploy/) — GHCR + SSH + `docker compose up -d`.  
+Binaries: `server`, `worker`, `workflow`, `analytics`, `migrate`, `scheduler`.

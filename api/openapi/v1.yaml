@@ -1,0 +1,71 @@
+openapi: 3.1.0
+info:
+  title: Qeet Notify API
+  description: Multi-channel transactional notification platform
+  version: 0.1.0
+  contact:
+    name: Qeet Group
+    url: https://qeet.in
+
+servers:
+  - url: https://notify.api.qeet.in
+    description: Production
+  - url: http://localhost:8080
+    description: Local development
+
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [System]
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /v1/events:
+    post:
+      summary: Trigger a notification event
+      operationId: triggerEvent
+      tags: [Events]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, subscriber_id]
+              properties:
+                event:
+                  type: string
+                  example: user.welcome
+                subscriber_id:
+                  type: string
+                  format: uuid
+                payload:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "202":
+          description: Event accepted for processing
+        "401":
+          description: Missing or invalid API key
+        "422":
+          description: Validation error
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Qeet-Api-Key

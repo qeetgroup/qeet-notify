@@ -8,16 +8,16 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/qeetgroup/qeet-notify/internal/channels/email"
-	"github.com/qeetgroup/qeet-notify/internal/channels/inapp"
-	"github.com/qeetgroup/qeet-notify/internal/channels/sms"
-	"github.com/qeetgroup/qeet-notify/internal/channels/webhook"
-	"github.com/qeetgroup/qeet-notify/internal/channels/whatsapp"
-	"github.com/qeetgroup/qeet-notify/internal/platform/cache"
-	"github.com/qeetgroup/qeet-notify/internal/platform/config"
-	"github.com/qeetgroup/qeet-notify/internal/platform/db"
-	"github.com/qeetgroup/qeet-notify/internal/platform/logger"
-	platformnats "github.com/qeetgroup/qeet-notify/internal/platform/nats"
+	"github.com/qeetgroup/qeet-notify/domains/providers/email"
+	"github.com/qeetgroup/qeet-notify/domains/providers/inapp"
+	"github.com/qeetgroup/qeet-notify/domains/providers/sms"
+	"github.com/qeetgroup/qeet-notify/domains/providers/webhook"
+	"github.com/qeetgroup/qeet-notify/domains/providers/whatsapp"
+	"github.com/qeetgroup/qeet-notify/platform/cache"
+	"github.com/qeetgroup/qeet-notify/platform/config"
+	"github.com/qeetgroup/qeet-notify/platform/database"
+	"github.com/qeetgroup/qeet-notify/platform/messaging"
+	"github.com/qeetgroup/qeet-notify/platform/observability"
 )
 
 func main() {
@@ -33,17 +33,17 @@ func main() {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
 		os.Exit(1)
 	}
-	log := logger.New(cfg.Env)
+	log := observability.New(cfg.Env)
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	pool, err := db.New(ctx, cfg.DatabaseURL)
+	pool, err := database.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("connect to database")
 	}
 	defer pool.Close()
 
-	nc, err := platformnats.New(cfg.NATSURL)
+	nc, err := messaging.New(cfg.NATSURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("connect to NATS")
 	}
@@ -51,7 +51,6 @@ func main() {
 
 	switch *channel {
 	case "email":
-		// Select primary provider based on configured credentials.
 		var primary email.Provider
 		if cfg.AWSSESAccessKey != "" {
 			p, err := email.NewSES(cfg.AWSSESRegion, cfg.AWSSESAccessKey, cfg.AWSSESSecretKey)

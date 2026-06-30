@@ -11,11 +11,11 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/qeetgroup/qeet-notify/internal/analytics"
-	"github.com/qeetgroup/qeet-notify/internal/platform/config"
-	"github.com/qeetgroup/qeet-notify/internal/platform/db"
-	"github.com/qeetgroup/qeet-notify/internal/platform/logger"
-	platformnats "github.com/qeetgroup/qeet-notify/internal/platform/nats"
+	"github.com/qeetgroup/qeet-notify/domains/analytics"
+	"github.com/qeetgroup/qeet-notify/platform/config"
+	"github.com/qeetgroup/qeet-notify/platform/database"
+	"github.com/qeetgroup/qeet-notify/platform/messaging"
+	"github.com/qeetgroup/qeet-notify/platform/observability"
 )
 
 func main() {
@@ -24,23 +24,22 @@ func main() {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
 		os.Exit(1)
 	}
-	log := logger.New(cfg.Env)
+	log := observability.New(cfg.Env)
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	pool, err := db.New(ctx, cfg.DatabaseURL)
+	pool, err := database.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("connect to database")
 	}
 	defer pool.Close()
 
-	nc, err := platformnats.New(cfg.NATSURL)
+	nc, err := messaging.New(cfg.NATSURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("connect to NATS")
 	}
 	defer nc.Close()
 
-	// Expose Prometheus metrics on :9090/metrics.
 	go func() {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", promhttp.Handler())

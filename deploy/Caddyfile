@@ -3,7 +3,7 @@ notify.api.qeet.in {
 }
 
 notify.sse.qeet.in {
-    reverse_proxy sse:8082 {
+    reverse_proxy api:8082 {
         flush_interval -1
     }
 }

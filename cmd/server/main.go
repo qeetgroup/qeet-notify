@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -13,13 +14,13 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
-	"github.com/qeetgroup/qeet-notify/internal/api/handler"
-	apimw "github.com/qeetgroup/qeet-notify/internal/api/middleware"
-	"github.com/qeetgroup/qeet-notify/internal/platform/cache"
-	"github.com/qeetgroup/qeet-notify/internal/platform/config"
-	"github.com/qeetgroup/qeet-notify/internal/platform/db"
-	"github.com/qeetgroup/qeet-notify/internal/platform/logger"
-	platformnats "github.com/qeetgroup/qeet-notify/internal/platform/nats"
+	"github.com/qeetgroup/qeet-notify/platform/api/handler"
+	apimw "github.com/qeetgroup/qeet-notify/platform/api/middleware"
+	"github.com/qeetgroup/qeet-notify/platform/cache"
+	"github.com/qeetgroup/qeet-notify/platform/config"
+	"github.com/qeetgroup/qeet-notify/platform/database"
+	"github.com/qeetgroup/qeet-notify/platform/messaging"
+	"github.com/qeetgroup/qeet-notify/platform/observability"
 )
 
 func main() {
@@ -28,11 +29,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
 		os.Exit(1)
 	}
-	log := logger.New(cfg.Env)
+	log := observability.New(cfg.Env)
 
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
-	pool, err := db.New(ctx, cfg.DatabaseURL)
+	pool, err := database.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("connect to database")
 	}
@@ -44,7 +46,7 @@ func main() {
 	}
 	defer rdb.Close()
 
-	nc, err := platformnats.New(cfg.NATSURL)
+	nc, err := messaging.New(cfg.NATSURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("connect to NATS")
 	}
@@ -55,14 +57,15 @@ func main() {
 	}
 
 	tenantLookup := apimw.TenantLookup(func(ctx context.Context, keyHash string) (string, bool, error) {
-		return db.LookupTenantByAPIKeyHash(ctx, pool, keyHash)
+		return database.LookupTenantByAPIKeyHash(ctx, pool, keyHash)
 	})
 
-	r := chi.NewRouter()
-	r.Use(chimw.RequestID)
-	r.Use(chimw.RealIP)
-	r.Use(chimw.Recoverer)
-	r.Use(cors.Handler(cors.Options{
+	// API router (8080) — authenticated, standard timeouts.
+	api := chi.NewRouter()
+	api.Use(chimw.RequestID)
+	api.Use(chimw.RealIP)
+	api.Use(chimw.Recoverer)
+	api.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"https://*", "http://*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Qeet-Api-Key"},
@@ -70,52 +73,74 @@ func main() {
 		MaxAge:           300,
 	}))
 
-	r.Get("/healthz", handler.Health)
-	r.Get("/readyz", handler.Health)
+	api.Get("/healthz", handler.Health)
+	api.Get("/readyz", handler.Health)
 
-	r.Route("/v1", func(r chi.Router) {
+	api.Route("/v1", func(r chi.Router) {
 		r.Use(apimw.Auth(tenantLookup))
 		r.Use(apimw.RateLimit(rdb, 1000, time.Minute))
 
 		r.Post("/events", handler.NewTriggerEvent(nc.JS))
 
-		// Subscriber management + DPDP erasure
 		r.Get("/subscribers/{subscriberID}/preferences", handler.GetPreferences(pool))
 		r.Delete("/subscribers/{subscriberID}", handler.DeleteSubscriber(pool))
 
-		// Analytics
 		r.Get("/analytics/delivery", handler.DeliveryAnalytics(pool))
 	})
 
-	// One-click unsubscribe — no API key (linked from emails).
-	r.Get("/v1/unsubscribe", handler.Unsubscribe(pool))
+	api.Get("/v1/unsubscribe", handler.Unsubscribe(pool))
+	api.Post("/v1/webhooks/email/{provider}", handler.InboundEmailWebhook(pool))
 
-	// Provider webhooks — no API key auth; providers call these directly.
-	r.Post("/v1/webhooks/email/{provider}", handler.InboundEmailWebhook(pool))
+	// SSE router (8082) — unauthenticated, infinite timeouts for streaming.
+	sse := chi.NewRouter()
+	sse.Use(chimw.RequestID)
+	sse.Use(chimw.RealIP)
+	sse.Use(chimw.Recoverer)
 
-	srv := &http.Server{
+	sse.Get("/v1/tenants/{tenantID}/subscribers/{subscriberID}/stream",
+		handler.NotificationStream(rdb))
+	sse.Get("/v1/tenants/{tenantID}/subscribers/{subscriberID}/notifications",
+		handler.NotificationFeed(pool))
+	sse.Patch("/v1/tenants/{tenantID}/notifications/{notifID}/read",
+		handler.MarkNotificationRead(pool))
+
+	apiSrv := &http.Server{
 		Addr:         ":" + cfg.HTTPPort,
-		Handler:      r,
+		Handler:      api,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+	sseSrv := &http.Server{
+		Addr:         ":8082",
+		Handler:      sse,
+		ReadTimeout:  0, // SSE streams require infinite timeouts
+		WriteTimeout: 0,
+		IdleTimeout:  120 * time.Second,
+	}
 
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		log.Info().Str("port", cfg.HTTPPort).Msg("qeet-notify api starting")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal().Err(err).Msg("server error")
+		if err := apiSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal().Err(err).Msg("api server error")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		log.Info().Str("port", "8082").Msg("qeet-notify sse starting")
+		if err := sseSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal().Err(err).Msg("sse server error")
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
+	<-ctx.Done()
 	log.Info().Msg("shutting down")
-	shutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(shutCtx); err != nil {
-		log.Error().Err(err).Msg("shutdown error")
-	}
+	shutCtx, shutCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutCancel()
+	apiSrv.Shutdown(shutCtx) //nolint:errcheck
+	sseSrv.Shutdown(shutCtx) //nolint:errcheck
+	wg.Wait()
 }

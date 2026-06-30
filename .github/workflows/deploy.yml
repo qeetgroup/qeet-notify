@@ -29,7 +29,7 @@ jobs:
 
       - name: Build and push all binaries
         run: |
-          for binary in server worker workflow sse analytics migrate; do
+          for binary in server worker workflow analytics migrate; do
             docker buildx build \
               --build-arg BINARY=${binary} \
               --tag ${{ env.IMAGE_PREFIX }}-${binary}:${{ github.sha }} \

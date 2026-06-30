@@ -20,20 +20,20 @@ LDFLAGS    := -X main.version=$(GIT_SHA) -X main.buildTime=$(BUILD_TIME)
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install Go deps + JS deps (frontend)
+install: ## Install Go deps + JS deps
 	$(GO) mod tidy
-	@if [ -d frontend ]; then cd frontend && pnpm install; fi
+	@if [ -d apps/console ]; then cd apps/console && pnpm install; fi
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 
 build: ## Build all Go binaries
 	mkdir -p $(BUILD_DIR)
-	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/qeet-notify-api      ./cmd/server/
-	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/qeet-notify-worker   ./cmd/worker/
-	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/qeet-notify-workflow ./cmd/workflow/
-	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/qeet-notify-sse      ./cmd/sse/
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/qeet-notify-server    ./cmd/server/
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/qeet-notify-worker    ./cmd/worker/
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/qeet-notify-workflow  ./cmd/workflow/
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/qeet-notify-analytics ./cmd/analytics/
-	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/qeet-notify-migrate  ./cmd/migrate/
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/qeet-notify-migrate   ./cmd/migrate/
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/qeet-notify-scheduler ./cmd/scheduler/
 
 build-api: ## Build API server only
 	mkdir -p $(BUILD_DIR)
@@ -46,8 +46,8 @@ dev: ## Run API server in dev mode (hot reload requires air)
 
 dev-backend: dev ## Alias for dev
 
-dev-dashboard: ## Start Next.js dashboard
-	cd frontend && pnpm --filter @qeet-notify/dashboard dev
+dev-console: ## Start Next.js console (:3010)
+	cd apps/console && pnpm dev
 
 # ── Test ───────────────────────────────────────────────────────────────────────
 

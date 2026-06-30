@@ -28,11 +28,16 @@ go.work.sum
 *.swo
 .DS_Store
 
-# Frontend
+# Root-level stray binaries
+/server
+/qeet-notify-*
+
+# Frontend / packages
 node_modules/
-frontend/.next/
-frontend/dist/
-frontend/.turbo/
+apps/console/.next/
+apps/console/dist/
+apps/console/.turbo/
+packages/**/dist/
 .pnpm-store/
 
 # Build artefacts

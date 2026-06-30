@@ -1,0 +1,6 @@
+{
+  "name": "@qeet-notify/notification-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "In-app notification SDK for embedding the notification feed"
+}
