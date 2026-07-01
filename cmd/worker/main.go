@@ -95,7 +95,7 @@ func main() {
 		}
 		defer rdb.Close()
 		provider := whatsapp.NewMeta(cfg.MetaWAToken, cfg.MetaWAPhoneID)
-		w := whatsapp.NewWorker(pool, nc.JS, provider, rdb, log)
+		w := whatsapp.NewWorker(pool, nc.JS, provider, cfg.EncryptionKey, rdb, log)
 		if err := w.Run(ctx); err != nil {
 			log.Fatal().Err(err).Msg("whatsapp worker")
 		}

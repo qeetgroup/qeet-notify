@@ -46,7 +46,7 @@ dev: ## Run API server in dev mode (hot reload requires air)
 
 dev-backend: dev ## Alias for dev
 
-dev-console: ## Start Next.js console
+dev-console: ## Start TanStack Start console on :3010
 	cd apps/console && pnpm dev
 
 # ── Test ───────────────────────────────────────────────────────────────────────

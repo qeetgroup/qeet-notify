@@ -56,8 +56,8 @@ func main() {
 		log.Fatal().Err(err).Msg("ensure NATS streams")
 	}
 
-	tenantLookup := apimw.TenantLookup(func(ctx context.Context, keyHash string) (string, bool, error) {
-		return database.LookupTenantByAPIKeyHash(ctx, pool, keyHash)
+	tenantLookup := apimw.TenantLookup(func(ctx context.Context, keyHash string) (string, string, bool, error) {
+		return database.LookupTenantByKey(ctx, pool, keyHash)
 	})
 
 	// API router (8080) — authenticated, standard timeouts.
@@ -78,14 +78,65 @@ func main() {
 
 	api.Route("/v1", func(r chi.Router) {
 		r.Use(apimw.Auth(tenantLookup))
+		r.Use(apimw.ScopeGuard())
 		r.Use(apimw.RateLimit(rdb, 1000, time.Minute))
 
+		// Events
 		r.Post("/events", handler.NewTriggerEvent(nc.JS))
 
-		r.Get("/subscribers/{subscriberID}/preferences", handler.GetPreferences(pool))
-		r.Delete("/subscribers/{subscriberID}", handler.DeleteSubscriber(pool))
+		// Templates
+		r.Get("/templates", handler.ListTemplates(pool))
+		r.Post("/templates", handler.CreateTemplate(pool))
+		r.Get("/templates/{id}", handler.GetTemplate(pool))
+		r.Put("/templates/{id}", handler.UpdateTemplate(pool))
+		r.Delete("/templates/{id}", handler.DeleteTemplate(pool))
+		r.Post("/templates/{id}/publish", handler.PublishTemplate(pool))
 
+		// Workflows
+		r.Get("/workflows", handler.ListWorkflows(pool))
+		r.Post("/workflows", handler.CreateWorkflow(pool))
+		r.Get("/workflows/{id}", handler.GetWorkflow(pool))
+		r.Put("/workflows/{id}", handler.UpdateWorkflow(pool))
+		r.Delete("/workflows/{id}", handler.ArchiveWorkflow(pool))
+		r.Post("/workflows/{id}/activate", handler.ActivateWorkflow(pool))
+		r.Post("/workflows/{id}/pause", handler.PauseWorkflow(pool))
+		r.Get("/workflows/{id}/runs", handler.ListWorkflowRuns(pool))
+
+		// Subscribers
+		r.Get("/subscribers", handler.ListSubscribers(pool))
+		r.Post("/subscribers", handler.CreateSubscriber(pool, cfg.EncryptionKey))
+		r.Get("/subscribers/{subscriberID}", handler.GetSubscriber(pool))
+		r.Put("/subscribers/{subscriberID}", handler.UpdateSubscriber(pool))
+		r.Delete("/subscribers/{subscriberID}", handler.DeleteSubscriber(pool))
+		r.Get("/subscribers/{subscriberID}/preferences", handler.GetPreferences(pool))
+		r.Put("/subscribers/{subscriberID}/preferences", handler.UpdatePreferences(pool))
+
+		// Provider configs
+		r.Get("/providers", handler.ListProviders(pool))
+		r.Post("/providers", handler.CreateProvider(pool, cfg.EncryptionKey))
+		r.Put("/providers/{id}", handler.UpdateProvider(pool, cfg.EncryptionKey))
+		r.Delete("/providers/{id}", handler.DeleteProvider(pool))
+
+		// DLT templates
+		r.Get("/dlt/templates", handler.ListDLTTemplates(pool))
+		r.Post("/dlt/templates", handler.RegisterDLTTemplate(pool))
+		r.Put("/dlt/templates/{id}", handler.UpdateDLTTemplate(pool))
+		r.Delete("/dlt/templates/{id}", handler.DeleteDLTTemplate(pool))
+
+		// API keys
+		r.Get("/api-keys", handler.ListAPIKeys(pool))
+		r.Post("/api-keys", handler.CreateAPIKey(pool))
+		r.Delete("/api-keys/{id}", handler.RevokeAPIKey(pool))
+
+		// Notifications (read-only)
+		r.Get("/notifications", handler.ListNotifications(pool))
+		r.Get("/notifications/{id}", handler.GetNotification(pool))
+
+		// Analytics
 		r.Get("/analytics/delivery", handler.DeliveryAnalytics(pool))
+
+		// Audit logs
+		r.Get("/audit-logs", handler.ListAuditLogs(pool))
 	})
 
 	api.Get("/v1/unsubscribe", handler.Unsubscribe(pool))

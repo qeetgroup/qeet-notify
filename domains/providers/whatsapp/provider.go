@@ -34,6 +34,12 @@ type SendResult struct {
 	ProviderMessageID string
 }
 
+// Provider is the interface every WhatsApp adapter must satisfy.
+type Provider interface {
+	Send(ctx context.Context, msg *Message) (*SendResult, error)
+	Name() string
+}
+
 // MetaProvider sends WhatsApp messages via the Meta Cloud API.
 type MetaProvider struct {
 	token   string

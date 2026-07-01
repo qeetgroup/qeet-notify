@@ -21,7 +21,7 @@ make db-reset      # Drop + recreate + migrate-up (dev only)
 
 # Development
 make dev           # Run qeet-notify-server with live reload
-make dev-console   # Start Next.js console on :3010
+make dev-console   # Start TanStack Start console on :3010
 
 # Build
 make build         # Build all Go binaries to bin/
@@ -78,7 +78,7 @@ platform/                  Shared infrastructure (no business logic)
   security/                (stub — HMAC/crypto helpers)
   storage/                 (stub — MinIO client)
 
-apps/console/              Next.js 16 dashboard (:3010)
+apps/console/              TanStack Start dashboard (:3010) — file-based routing, @qeetrix/ui
 
 sdk/go/                    Public Go SDK
 sdk/node/                  @qeet-notify/node TypeScript SDK

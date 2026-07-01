@@ -11,19 +11,41 @@ import (
 
 // LookupTenantByAPIKeyHash returns the tenant UUID for a given SHA-256 API key hash.
 // Returns ("", false, nil) when no matching tenant is found.
+// Deprecated: use LookupTenantByKey which also checks scoped api_keys.
 func LookupTenantByAPIKeyHash(ctx context.Context, pool *pgxpool.Pool, hash string) (string, bool, error) {
-	var id string
-	err := pool.QueryRow(ctx,
+	tenantID, _, found, err := LookupTenantByKey(ctx, pool, hash)
+	return tenantID, found, err
+}
+
+// LookupTenantByKey resolves a key hash to (tenantID, scope).
+// Priority: api_keys table (scoped multi-keys) → tenants.api_key_hash (master key, scope="full").
+// Returns ("", "", false, nil) when no match is found.
+func LookupTenantByKey(ctx context.Context, pool *pgxpool.Pool, hash string) (tenantID, scope string, found bool, err error) {
+	// 1. Check scoped API keys table first.
+	err = pool.QueryRow(ctx,
+		`SELECT tenant_id::text, scope FROM api_keys
+		 WHERE key_hash = $1 AND revoked_at IS NULL LIMIT 1`,
+		hash,
+	).Scan(&tenantID, &scope)
+	if err == nil {
+		return tenantID, scope, true, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", "", false, fmt.Errorf("api_keys lookup: %w", err)
+	}
+
+	// 2. Fall back to the tenant's master API key (always "full" scope).
+	err = pool.QueryRow(ctx,
 		`SELECT id FROM tenants WHERE api_key_hash = $1 LIMIT 1`,
 		hash,
-	).Scan(&id)
+	).Scan(&tenantID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, nil
+		return "", "", false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("tenant lookup: %w", err)
+		return "", "", false, fmt.Errorf("tenant lookup: %w", err)
 	}
-	return id, true, nil
+	return tenantID, "full", true, nil
 }
 
 // WithTenant runs fn inside a transaction with RLS context set to tenantID.

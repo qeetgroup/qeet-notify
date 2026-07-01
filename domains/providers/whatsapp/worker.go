@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
+	"github.com/qeetgroup/qeet-notify/domains/routing"
 	"github.com/qeetgroup/qeet-notify/domains/workflows/engine"
 	"github.com/qeetgroup/qeet-notify/platform/messaging"
 )
@@ -19,13 +20,14 @@ import (
 type Worker struct {
 	pool     *pgxpool.Pool
 	js       jetstream.JetStream
-	provider *MetaProvider
+	provider Provider // static fallback; may be nil
+	encKey   string
 	rdb      *redis.Client
 	log      zerolog.Logger
 }
 
-func NewWorker(pool *pgxpool.Pool, js jetstream.JetStream, provider *MetaProvider, rdb *redis.Client, log zerolog.Logger) *Worker {
-	return &Worker{pool: pool, js: js, provider: provider, rdb: rdb, log: log}
+func NewWorker(pool *pgxpool.Pool, js jetstream.JetStream, provider Provider, encKey string, rdb *redis.Client, log zerolog.Logger) *Worker {
+	return &Worker{pool: pool, js: js, provider: provider, encKey: encKey, rdb: rdb, log: log}
 }
 
 func (w *Worker) Run(ctx context.Context) error {
@@ -117,19 +119,48 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 		Components:   buildComponents(job.Payload),
 	}
 
-	result, err := w.provider.Send(ctx, waMsg)
-	if err != nil {
-		w.recordDelivery(ctx, job, "failed", w.provider.Name())
-		return err
+	result, providerName, sendErr := w.sendWithFallback(ctx, waMsg, job.TenantID)
+	if sendErr != nil {
+		w.recordDelivery(ctx, job, "failed", providerName)
+		return sendErr
 	}
 
-	w.recordDelivery(ctx, job, "sent", w.provider.Name())
-	_, err = w.pool.Exec(ctx,
+	w.recordDelivery(ctx, job, "sent", providerName)
+	_, execErr := w.pool.Exec(ctx,
 		`UPDATE notifications SET status = 'sent', provider = $1, provider_message_id = $2, updated_at = NOW()
 		 WHERE id = $3`,
-		w.provider.Name(), result.ProviderMessageID, job.NotificationID,
+		providerName, result.ProviderMessageID, job.NotificationID,
 	)
-	return err
+	return execErr
+}
+
+func (w *Worker) sendWithFallback(ctx context.Context, msg *Message, tenantID string) (*SendResult, string, error) {
+	var providers []Provider
+	if records, err := routing.Load(ctx, w.pool, tenantID, "whatsapp", w.encKey); err != nil {
+		w.log.Warn().Err(err).Msg("routing load failed; using static whatsapp provider")
+	} else if dbProviders, err := BuildProviders(records); err != nil {
+		w.log.Warn().Err(err).Msg("routing build failed; using static whatsapp provider")
+	} else if len(dbProviders) > 0 {
+		providers = dbProviders
+	}
+	if len(providers) == 0 && w.provider != nil {
+		providers = []Provider{w.provider}
+	}
+
+	var lastErr error
+	for _, p := range providers {
+		result, err := p.Send(ctx, msg)
+		if err == nil {
+			return result, p.Name(), nil
+		}
+		w.log.Warn().Err(err).Str("provider", p.Name()).Msg("whatsapp provider failed; trying next")
+		lastErr = err
+	}
+	name := ""
+	if len(providers) > 0 {
+		name = providers[len(providers)-1].Name()
+	}
+	return nil, name, lastErr
 }
 
 // InboundWebhook updates the 24h service window key when a user sends a message.
