@@ -10,6 +10,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 
+	"github.com/qeetgroup/qeet-notify/domains/routing"
 	"github.com/qeetgroup/qeet-notify/domains/templates/rendering"
 	"github.com/qeetgroup/qeet-notify/domains/workflows/engine"
 	"github.com/qeetgroup/qeet-notify/platform/messaging"
@@ -103,7 +104,7 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 		Tags:     map[string]string{"notification_id": job.NotificationID, "tenant_id": job.TenantID},
 	}
 
-	result, providerName, sendErr := w.sendWithFallback(ctx, emailMsg)
+	result, providerName, sendErr := w.sendWithFallback(ctx, emailMsg, job.TenantID)
 
 	// Record delivery event regardless of success/failure.
 	eventType := "sent"
@@ -125,21 +126,42 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 	return err
 }
 
-func (w *Worker) sendWithFallback(ctx context.Context, msg *Message) (*SendResult, string, error) {
-	result, err := w.primary.Send(ctx, msg)
-	if err == nil {
-		return result, w.primary.Name(), nil
+func (w *Worker) sendWithFallback(ctx context.Context, msg *Message, tenantID string) (*SendResult, string, error) {
+	// Prefer tenant-specific providers from DB; fall back to static startup config.
+	providers := w.staticProviders()
+	if records, err := routing.Load(ctx, w.pool, tenantID, "email", w.encKey); err != nil {
+		w.log.Warn().Err(err).Msg("routing load failed; using static email providers")
+	} else if dbProviders, err := BuildProviders(records); err != nil {
+		w.log.Warn().Err(err).Msg("routing build failed; using static email providers")
+	} else if len(dbProviders) > 0 {
+		providers = dbProviders
 	}
-	w.log.Warn().Err(err).Str("provider", w.primary.Name()).Msg("primary provider failed; trying fallback")
 
-	if w.fallback == nil {
-		return nil, w.primary.Name(), err
+	var lastErr error
+	for _, p := range providers {
+		result, err := p.Send(ctx, msg)
+		if err == nil {
+			return result, p.Name(), nil
+		}
+		w.log.Warn().Err(err).Str("provider", p.Name()).Msg("email provider failed; trying next")
+		lastErr = err
 	}
-	result, err = w.fallback.Send(ctx, msg)
-	if err != nil {
-		return nil, w.fallback.Name(), err
+	name := ""
+	if len(providers) > 0 {
+		name = providers[len(providers)-1].Name()
 	}
-	return result, w.fallback.Name(), nil
+	return nil, name, lastErr
+}
+
+func (w *Worker) staticProviders() []Provider {
+	if w.primary == nil {
+		return nil
+	}
+	providers := []Provider{w.primary}
+	if w.fallback != nil {
+		providers = append(providers, w.fallback)
+	}
+	return providers
 }
 
 func (w *Worker) recordDelivery(ctx context.Context, job engine.ChannelJob, eventType, provider string, sendErr error) {
