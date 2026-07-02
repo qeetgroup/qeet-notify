@@ -11,8 +11,9 @@ import (
 type contextKey string
 
 const (
-	tenantIDKey contextKey = "tenantID"
-	scopeKey    contextKey = "apiKeyScope"
+	tenantIDKey   contextKey = "tenantID"
+	scopeKey      contextKey = "apiKeyScope"
+	apiKeyHashKey contextKey = "apiKeyHash"
 )
 
 // TenantFromContext extracts the tenant ID injected by Auth middleware.
@@ -29,6 +30,21 @@ func ScopeFromContext(ctx context.Context) (string, bool) {
 		return "full", false
 	}
 	return v, true
+}
+
+// ActorFromContext identifies who is making the request, for audit logging.
+// Returns ("api_key", "apikey:<fingerprint>") when authenticated via an API key
+// (the fingerprint is a short, stable prefix of the key hash — enough to
+// attribute the action without storing the full credential hash), else
+// ("system", "system").
+func ActorFromContext(ctx context.Context) (actorType, actorID string) {
+	if h, ok := ctx.Value(apiKeyHashKey).(string); ok && h != "" {
+		if len(h) > 16 {
+			h = h[:16]
+		}
+		return "api_key", "apikey:" + h
+	}
+	return "system", "system"
 }
 
 // hashAPIKey returns hex(SHA-256(key)) for comparison against stored hashes.
@@ -49,13 +65,15 @@ func Auth(lookup TenantLookup) func(http.Handler) http.Handler {
 				http.Error(w, `{"error":"missing X-Qeet-Api-Key"}`, http.StatusUnauthorized)
 				return
 			}
-			tenantID, scope, found, err := lookup(r.Context(), hashAPIKey(key))
+			keyHash := hashAPIKey(key)
+			tenantID, scope, found, err := lookup(r.Context(), keyHash)
 			if err != nil || !found {
 				http.Error(w, `{"error":"invalid api key"}`, http.StatusUnauthorized)
 				return
 			}
 			ctx := context.WithValue(r.Context(), tenantIDKey, tenantID)
 			ctx = context.WithValue(ctx, scopeKey, scope)
+			ctx = context.WithValue(ctx, apiKeyHashKey, keyHash)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

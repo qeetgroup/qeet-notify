@@ -19,6 +19,7 @@ import (
 
 	"github.com/qeetgroup/qeet-notify/domains/scheduler"
 	"github.com/qeetgroup/qeet-notify/domains/workflows/engine"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 	"github.com/qeetgroup/qeet-notify/platform/messaging"
 	"github.com/qeetgroup/qeet-notify/platform/observability"
 )
@@ -77,10 +78,13 @@ func seed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (tenantID, subI
 		_, _ = pool.Exec(context.Background(), `DELETE FROM tenants WHERE id = $1`, tenantID)
 	})
 
-	if err := pool.QueryRow(ctx,
-		`INSERT INTO subscribers (tenant_id, external_id) VALUES ($1, 'user-1') RETURNING id`,
-		tenantID,
-	).Scan(&subID); err != nil {
+	// subscribers is RLS-forced (Module 36): seed inside a tenant-scoped tx.
+	if err := database.RunInTenant(ctx, pool, tenantID, func(ctx context.Context, q database.Querier) error {
+		return q.QueryRow(ctx,
+			`INSERT INTO subscribers (tenant_id, external_id) VALUES ($1, 'user-1') RETURNING id`,
+			tenantID,
+		).Scan(&subID)
+	}); err != nil {
 		t.Fatalf("seed subscriber: %v", err)
 	}
 

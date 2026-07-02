@@ -10,8 +10,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 
-	"github.com/qeetgroup/qeet-notify/platform/messaging"
 	"github.com/qeetgroup/qeet-notify/domains/subscribers/preferences"
+	"github.com/qeetgroup/qeet-notify/platform/database"
+	"github.com/qeetgroup/qeet-notify/platform/messaging"
 )
 
 // Engine consumes NOTIFY_EVENTS, resolves the matching workflow, and dispatches
@@ -76,11 +77,15 @@ func (e *Engine) handle(ctx context.Context, msg jetstream.Msg) error {
 		return fmt.Errorf("unmarshal event: %w", err)
 	}
 
-	// Resume signal from the scheduler: an existing run whose delay has elapsed.
-	if ev.RunID != "" {
-		return e.Resume(ctx, ev.RunID)
-	}
-	return e.ProcessEvent(ctx, ev)
+	// Run all DB work in a tenant-scoped tx so row-level security applies
+	// (Module 36). Inner methods pick up the tx via database.FromContext.
+	return database.RunInTenant(ctx, e.pool, ev.TenantID, func(ctx context.Context, _ database.Querier) error {
+		// Resume signal from the scheduler: an existing run whose delay has elapsed.
+		if ev.RunID != "" {
+			return e.Resume(ctx, ev.RunID)
+		}
+		return e.ProcessEvent(ctx, ev)
+	})
 }
 
 // ProcessEvent runs a fresh workflow triggered by ev. It is a no-op (nil) when no
@@ -108,7 +113,7 @@ func (e *Engine) Resume(ctx context.Context, runID string) error {
 	var tenantID, triggerEvent, payloadJSON, stepsJSON string
 	var subscriberID string
 	var startIdx int
-	err := e.pool.QueryRow(ctx,
+	err := database.FromContext(ctx, e.pool).QueryRow(ctx,
 		`SELECT r.tenant_id, COALESCE(r.subscriber_id::text, ''), r.trigger_event,
 		        r.trigger_payload::text, r.current_step_index, w.steps::text
 		 FROM workflow_runs r
@@ -147,7 +152,7 @@ type dbWorkflow struct {
 
 func (e *Engine) lookupWorkflow(ctx context.Context, tenantID, triggerEvent string) (*dbWorkflow, error) {
 	var id, stepsJSON string
-	err := e.pool.QueryRow(ctx,
+	err := database.FromContext(ctx, e.pool).QueryRow(ctx,
 		`SELECT id, steps FROM workflows
 		 WHERE tenant_id = $1 AND trigger_event = $2 AND is_active
 		 LIMIT 1`,
@@ -168,7 +173,7 @@ func (e *Engine) lookupWorkflow(ctx context.Context, tenantID, triggerEvent stri
 func (e *Engine) createRun(ctx context.Context, ev Event, wf *dbWorkflow) (string, error) {
 	payloadJSON, _ := json.Marshal(ev.Payload)
 	var runID string
-	err := e.pool.QueryRow(ctx,
+	err := database.FromContext(ctx, e.pool).QueryRow(ctx,
 		`INSERT INTO workflow_runs
 		    (tenant_id, workflow_id, subscriber_id, trigger_event, trigger_payload)
 		 VALUES ($1, $2, $3, $4, $5)
@@ -211,7 +216,7 @@ func (e *Engine) executeFrom(ctx context.Context, ev Event, steps []Step, runID 
 		case StepTypeDelay:
 			resumeAt := time.Now().Add(time.Duration(step.DelaySeconds) * time.Second)
 			next := nextIndex(idxByID, step, i)
-			_, err := e.pool.Exec(ctx,
+			_, err := database.FromContext(ctx, e.pool).Exec(ctx,
 				`UPDATE workflow_runs SET resume_at = $1, current_step_index = $2, updated_at = NOW()
 				 WHERE id = $3`,
 				resumeAt, next, runID,
@@ -245,7 +250,7 @@ func (e *Engine) executeFrom(ctx context.Context, ev Event, steps []Step, runID 
 		}
 	}
 
-	_, err := e.pool.Exec(ctx,
+	_, err := database.FromContext(ctx, e.pool).Exec(ctx,
 		`UPDATE workflow_runs SET status = 'completed', current_step_index = $1, updated_at = NOW()
 		 WHERE id = $2`,
 		len(steps), runID,
@@ -265,7 +270,7 @@ func nextIndex(idxByID map[string]int, step Step, i int) int {
 }
 
 func (e *Engine) failRun(ctx context.Context, runID, reason string) error {
-	_, err := e.pool.Exec(ctx,
+	_, err := database.FromContext(ctx, e.pool).Exec(ctx,
 		`UPDATE workflow_runs SET status = 'failed', error = $1, updated_at = NOW() WHERE id = $2`,
 		reason, runID,
 	)
@@ -278,7 +283,7 @@ func (e *Engine) dispatchChannel(ctx context.Context, ev Event, step Step, runID
 	if category == "" {
 		category = "all"
 	}
-	optedIn, err := preferences.IsOptedIn(ctx, e.pool, ev.TenantID, ev.SubscriberID, step.Channel, category)
+	optedIn, err := preferences.IsOptedIn(ctx, database.FromContext(ctx, e.pool), ev.TenantID, ev.SubscriberID, step.Channel, category)
 	if err != nil {
 		e.log.Warn().Err(err).Msg("preference check failed; defaulting to opted-in")
 	}
@@ -289,7 +294,7 @@ func (e *Engine) dispatchChannel(ctx context.Context, ev Event, step Step, runID
 
 	// Persist the notification record so workers can update its status.
 	var notificationID string
-	if err := e.pool.QueryRow(ctx,
+	if err := database.FromContext(ctx, e.pool).QueryRow(ctx,
 		`INSERT INTO notifications
 		    (tenant_id, workflow_run_id, subscriber_id, channel, template_id, status)
 		 VALUES ($1, $2, $3, $4, $5, 'queued')

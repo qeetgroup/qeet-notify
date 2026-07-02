@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/qeetgroup/qeet-notify/platform/api/middleware"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 )
 
 type apiKeyRow struct {
@@ -28,8 +29,9 @@ type apiKeyRow struct {
 func ListAPIKeys(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 
-		rows, err := pool.Query(r.Context(),
+		rows, err := q.Query(r.Context(),
 			`SELECT id, name, prefix, scope, created_at, revoked_at
 			 FROM api_keys WHERE tenant_id = $1 ORDER BY created_at DESC`,
 			tenantID,
@@ -61,6 +63,7 @@ func ListAPIKeys(pool *pgxpool.Pool) http.HandlerFunc {
 func CreateAPIKey(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 
 		var req struct {
 			Name  string `json:"name"`
@@ -85,7 +88,7 @@ func CreateAPIKey(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 
 		var id string
-		err = pool.QueryRow(r.Context(),
+		err = q.QueryRow(r.Context(),
 			`INSERT INTO api_keys (tenant_id, name, key_hash, prefix, scope)
 			 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
 			tenantID, req.Name, keyHash, prefix, req.Scope,
@@ -111,9 +114,10 @@ func CreateAPIKey(pool *pgxpool.Pool) http.HandlerFunc {
 func RevokeAPIKey(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
-		result, err := pool.Exec(r.Context(),
+		result, err := q.Exec(r.Context(),
 			`UPDATE api_keys SET revoked_at = NOW() WHERE id = $1 AND tenant_id = $2 AND revoked_at IS NULL`,
 			id, tenantID,
 		)

@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 )
 
 // ISTLocation is the Asia/Kolkata timezone.
@@ -48,8 +48,8 @@ type DLTTemplate struct {
 }
 
 // LoadApprovedTemplates fetches all approved DLT templates for a tenant + carrier.
-func LoadApprovedTemplates(ctx context.Context, pool *pgxpool.Pool, tenantID, carrier string) ([]DLTTemplate, error) {
-	rows, err := pool.Query(ctx,
+func LoadApprovedTemplates(ctx context.Context, q database.Querier, tenantID, carrier string) ([]DLTTemplate, error) {
+	rows, err := q.Query(ctx,
 		`SELECT id, carrier, body_regex FROM dlt_templates
 		 WHERE tenant_id = $1 AND channel = 'sms'
 		   AND (carrier = $2 OR carrier = 'all')

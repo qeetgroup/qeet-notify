@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/qeetgroup/qeet-notify/platform/api/middleware"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 )
 
 type notificationRow struct {
@@ -31,6 +32,7 @@ type notificationRow struct {
 func ListNotifications(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 
 		limit := 50
 		offset := 0
@@ -62,7 +64,7 @@ func ListNotifications(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 
 		var total int64
-		pool.QueryRow(r.Context(), //nolint:errcheck
+		q.QueryRow(r.Context(), //nolint:errcheck
 			`SELECT COUNT(*) FROM notifications `+baseWhere, filterArgs...,
 		).Scan(&total)
 
@@ -73,7 +75,7 @@ func ListNotifications(pool *pgxpool.Pool) http.HandlerFunc {
 			` ORDER BY created_at DESC LIMIT $` + strconv.Itoa(len(pageArgs)-1) +
 			` OFFSET $` + strconv.Itoa(len(pageArgs))
 
-		rows, err := pool.Query(r.Context(), query, pageArgs...)
+		rows, err := q.Query(r.Context(), query, pageArgs...)
 		if err != nil {
 			http.Error(w, `{"error":"query failed"}`, http.StatusInternalServerError)
 			return
@@ -105,11 +107,12 @@ func ListNotifications(pool *pgxpool.Pool) http.HandlerFunc {
 func GetNotification(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
 		var n notificationRow
 		var content []byte
-		err := pool.QueryRow(r.Context(),
+		err := q.QueryRow(r.Context(),
 			`SELECT id, workflow_run_id, subscriber_id, channel, template_id, status,
 			        provider, provider_message_id, content, is_read, created_at, updated_at
 			 FROM notifications WHERE id = $1 AND tenant_id = $2`,
@@ -130,7 +133,7 @@ func GetNotification(pool *pgxpool.Pool) http.HandlerFunc {
 			Provider   string    `json:"provider"`
 			OccurredAt time.Time `json:"occurred_at"`
 		}
-		evRows, err := pool.Query(r.Context(),
+		evRows, err := q.Query(r.Context(),
 			`SELECT id, event_type, provider, occurred_at
 			 FROM delivery_events WHERE notification_id = $1 ORDER BY occurred_at`,
 			id,

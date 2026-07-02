@@ -8,6 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
+
+	"github.com/qeetgroup/qeet-notify/platform/database"
 )
 
 // qeet-id publishes user lifecycle events on these subjects.
@@ -75,17 +77,24 @@ func Federate(ctx context.Context, pool *pgxpool.Pool, js jetstream.JetStream, e
 		}
 
 		subject := msg.Subject()
+		// Each upsert/delete runs in a tenant-scoped tx so RLS applies (Module 36).
 		switch {
 		case matchesSuffix(subject, "user.created"), matchesSuffix(subject, "user.updated"):
-			upsertSubscriber(ctx, pool, ev, encKey, log)
+			_ = database.RunInTenant(ctx, pool, ev.TenantID, func(ctx context.Context, q database.Querier) error {
+				upsertSubscriber(ctx, q, ev, encKey, log)
+				return nil
+			})
 		case matchesSuffix(subject, "user.deleted"):
-			softDeleteSubscriber(ctx, pool, ev.TenantID, ev.UserID, log)
+			_ = database.RunInTenant(ctx, pool, ev.TenantID, func(ctx context.Context, q database.Querier) error {
+				softDeleteSubscriber(ctx, q, ev.TenantID, ev.UserID, log)
+				return nil
+			})
 		}
 		msg.Ack() //nolint:errcheck
 	}
 }
 
-func upsertSubscriber(ctx context.Context, pool *pgxpool.Pool, ev qeetIDUserEvent, encKey string, log zerolog.Logger) {
+func upsertSubscriber(ctx context.Context, q database.Querier, ev qeetIDUserEvent, encKey string, log zerolog.Logger) {
 	locale := ev.Locale
 	if locale == "" {
 		locale = "en"
@@ -94,7 +103,7 @@ func upsertSubscriber(ctx context.Context, pool *pgxpool.Pool, ev qeetIDUserEven
 	if tz == "" {
 		tz = "Asia/Kolkata"
 	}
-	if _, err := pool.Exec(ctx,
+	if _, err := q.Exec(ctx,
 		`INSERT INTO subscribers (tenant_id, external_id, email_encrypted, phone_encrypted, locale, timezone)
 		 VALUES ($1, $2,
 		         CASE WHEN $3::text IS NULL THEN NULL ELSE pgp_sym_encrypt($3::text, $7)::text END,
@@ -112,8 +121,8 @@ func upsertSubscriber(ctx context.Context, pool *pgxpool.Pool, ev qeetIDUserEven
 	}
 }
 
-func softDeleteSubscriber(ctx context.Context, pool *pgxpool.Pool, tenantID, userID string, log zerolog.Logger) {
-	if _, err := pool.Exec(ctx,
+func softDeleteSubscriber(ctx context.Context, q database.Querier, tenantID, userID string, log zerolog.Logger) {
+	if _, err := q.Exec(ctx,
 		`UPDATE subscribers SET is_deleted = TRUE, deleted_at = NOW(), updated_at = NOW()
 		 WHERE tenant_id = $1 AND external_id = $2`,
 		tenantID, userID,

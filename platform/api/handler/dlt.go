@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/qeetgroup/qeet-notify/platform/api/middleware"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 )
 
 type dltTemplateRow struct {
@@ -32,6 +33,7 @@ type dltTemplateRow struct {
 func ListDLTTemplates(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 
 		channel := r.URL.Query().Get("channel")
 		carrier := r.URL.Query().Get("carrier")
@@ -55,7 +57,7 @@ func ListDLTTemplates(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		query += ` ORDER BY created_at DESC`
 
-		rows, err := pool.Query(r.Context(), query, args...)
+		rows, err := q.Query(r.Context(), query, args...)
 		if err != nil {
 			http.Error(w, `{"error":"query failed"}`, http.StatusInternalServerError)
 			return
@@ -87,6 +89,7 @@ func ListDLTTemplates(pool *pgxpool.Pool) http.HandlerFunc {
 func RegisterDLTTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 
 		var req struct {
 			Carrier       string         `json:"carrier"`
@@ -119,7 +122,7 @@ func RegisterDLTTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 		meta, _ := json.Marshal(req.Metadata)
 
 		var id string
-		err := pool.QueryRow(r.Context(),
+		err := q.QueryRow(r.Context(),
 			`INSERT INTO dlt_templates
 			 (tenant_id, carrier, channel, template_id_ext, template_name, pe_id, sender_id, category, body_regex, metadata)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
@@ -141,6 +144,7 @@ func RegisterDLTTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 func UpdateDLTTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
 		var req struct {
@@ -154,7 +158,7 @@ func UpdateDLTTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 
 		if req.Status != nil {
-			result, err := pool.Exec(r.Context(),
+			result, err := q.Exec(r.Context(),
 				`UPDATE dlt_templates SET status=$1, updated_at=NOW() WHERE id=$2 AND tenant_id=$3`,
 				*req.Status, id, tenantID,
 			)
@@ -164,13 +168,13 @@ func UpdateDLTTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 			}
 		}
 		if req.PeID != nil {
-			pool.Exec(r.Context(), //nolint:errcheck
+			q.Exec(r.Context(), //nolint:errcheck
 				`UPDATE dlt_templates SET pe_id=$1, updated_at=NOW() WHERE id=$2 AND tenant_id=$3`,
 				*req.PeID, id, tenantID,
 			)
 		}
 		if req.SenderID != nil {
-			pool.Exec(r.Context(), //nolint:errcheck
+			q.Exec(r.Context(), //nolint:errcheck
 				`UPDATE dlt_templates SET sender_id=$1, updated_at=NOW() WHERE id=$2 AND tenant_id=$3`,
 				*req.SenderID, id, tenantID,
 			)
@@ -185,9 +189,10 @@ func UpdateDLTTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 func DeleteDLTTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
-		result, err := pool.Exec(r.Context(),
+		result, err := q.Exec(r.Context(),
 			`DELETE FROM dlt_templates WHERE id=$1 AND tenant_id=$2`,
 			id, tenantID,
 		)

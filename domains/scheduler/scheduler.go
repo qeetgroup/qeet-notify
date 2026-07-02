@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/qeetgroup/qeet-notify/domains/workflows/engine"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 	"github.com/qeetgroup/qeet-notify/platform/messaging"
 )
 
@@ -45,43 +46,68 @@ func (s *Scheduler) Run(ctx context.Context) error {
 
 // Tick performs one scan: re-enqueues every workflow run whose resume_at is due.
 // Exported so it can be driven deterministically in tests.
+//
+// workflow_runs is RLS-forced (Module 36), so the scan is done per-tenant: we
+// enumerate tenants (the tenants table is not RLS-scoped) and, inside a
+// tenant-scoped tx, find and re-enqueue that tenant's due runs.
 func (s *Scheduler) Tick(ctx context.Context) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, tenant_id FROM workflow_runs
-		 WHERE status = 'running' AND resume_at IS NOT NULL AND resume_at <= NOW()
-		 ORDER BY resume_at
-		 LIMIT $1`,
-		s.batch,
-	)
+	tenantRows, err := s.pool.Query(ctx, `SELECT id FROM tenants`)
 	if err != nil {
-		s.log.Error().Err(err).Msg("scheduler query due runs")
+		s.log.Error().Err(err).Msg("scheduler list tenants")
 		return
 	}
-
-	type due struct{ runID, tenantID string }
-	var dues []due
-	for rows.Next() {
-		var d due
-		if err := rows.Scan(&d.runID, &d.tenantID); err != nil {
-			continue
+	var tenantIDs []string
+	for tenantRows.Next() {
+		var id string
+		if err := tenantRows.Scan(&id); err == nil {
+			tenantIDs = append(tenantIDs, id)
 		}
-		dues = append(dues, d)
 	}
-	rows.Close()
+	tenantRows.Close()
 
-	for _, d := range dues {
-		// Clear resume_at before re-enqueueing so a slow engine never gets the
-		// same run published twice.
-		if _, err := s.pool.Exec(ctx,
-			`UPDATE workflow_runs SET resume_at = NULL, updated_at = NOW() WHERE id = $1`,
-			d.runID,
-		); err != nil {
-			s.log.Error().Err(err).Str("run", d.runID).Msg("scheduler clear resume_at")
-			continue
-		}
-		payload, _ := json.Marshal(engine.Event{TenantID: d.tenantID, RunID: d.runID})
-		if _, err := s.nc.JS.Publish(ctx, messaging.EventSubject(d.tenantID), payload); err != nil {
-			s.log.Error().Err(err).Str("run", d.runID).Msg("scheduler publish resume")
+	for _, tid := range tenantIDs {
+		err := database.RunInTenant(ctx, s.pool, tid, func(ctx context.Context, q database.Querier) error {
+			// Keep the explicit tenant filter as well as the tenant-scoped tx:
+			// RLS is only enforced when the app connects as a non-superuser role,
+			// so the WHERE clause guarantees correct scoping either way.
+			rows, err := q.Query(ctx,
+				`SELECT id FROM workflow_runs
+				 WHERE tenant_id = $1 AND status = 'running' AND resume_at IS NOT NULL AND resume_at <= NOW()
+				 ORDER BY resume_at
+				 LIMIT $2`,
+				tid, s.batch,
+			)
+			if err != nil {
+				return err
+			}
+			var runIDs []string
+			for rows.Next() {
+				var id string
+				if err := rows.Scan(&id); err == nil {
+					runIDs = append(runIDs, id)
+				}
+			}
+			rows.Close()
+
+			for _, runID := range runIDs {
+				// Clear resume_at before re-enqueueing so a slow engine never
+				// gets the same run published twice.
+				if _, err := q.Exec(ctx,
+					`UPDATE workflow_runs SET resume_at = NULL, updated_at = NOW() WHERE id = $1`,
+					runID,
+				); err != nil {
+					s.log.Error().Err(err).Str("run", runID).Msg("scheduler clear resume_at")
+					continue
+				}
+				payload, _ := json.Marshal(engine.Event{TenantID: tid, RunID: runID})
+				if _, err := s.nc.JS.Publish(ctx, messaging.EventSubject(tid), payload); err != nil {
+					s.log.Error().Err(err).Str("run", runID).Msg("scheduler publish resume")
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			s.log.Error().Err(err).Str("tenant", tid).Msg("scheduler tenant tick")
 		}
 	}
 }

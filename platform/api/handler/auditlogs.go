@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/qeetgroup/qeet-notify/platform/api/middleware"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 )
 
 type auditLogRow struct {
@@ -29,6 +30,7 @@ type auditLogRow struct {
 func ListAuditLogs(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 
 		limit := 50
 		offset := 0
@@ -72,7 +74,7 @@ func ListAuditLogs(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 
 		var total int64
-		pool.QueryRow(r.Context(), //nolint:errcheck
+		q.QueryRow(r.Context(), //nolint:errcheck
 			`SELECT COUNT(*) FROM audit_logs `+baseWhere, args...,
 		).Scan(&total)
 
@@ -83,7 +85,7 @@ func ListAuditLogs(pool *pgxpool.Pool) http.HandlerFunc {
 			` ORDER BY occurred_at DESC LIMIT $` + strconv.Itoa(len(pageArgs)-1) +
 			` OFFSET $` + strconv.Itoa(len(pageArgs))
 
-		rows, err := pool.Query(r.Context(), query, pageArgs...)
+		rows, err := q.Query(r.Context(), query, pageArgs...)
 		if err != nil {
 			http.Error(w, `{"error":"query failed"}`, http.StatusInternalServerError)
 			return

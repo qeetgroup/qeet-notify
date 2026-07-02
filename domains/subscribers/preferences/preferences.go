@@ -6,14 +6,14 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 )
 
 // IsOptedIn returns false if the subscriber has opted out of the given channel+category.
 // Falls back to checking channel='all' and category='all' if a specific row is missing.
-func IsOptedIn(ctx context.Context, pool *pgxpool.Pool, tenantID, subscriberID, channel, category string) (bool, error) {
+func IsOptedIn(ctx context.Context, q database.Querier, tenantID, subscriberID, channel, category string) (bool, error) {
 	var optedIn bool
-	err := pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT is_opted_in FROM preferences
 		 WHERE tenant_id = $1 AND subscriber_id = $2
 		   AND channel IN ($3, 'all')
@@ -32,10 +32,10 @@ func IsOptedIn(ctx context.Context, pool *pgxpool.Pool, tenantID, subscriberID, 
 }
 
 // IsSuppressed checks whether the hashed value (email or phone) is on the suppression list.
-func IsSuppressed(ctx context.Context, pool *pgxpool.Pool, tenantID, channel, plainValue string) (bool, error) {
+func IsSuppressed(ctx context.Context, q database.Querier, tenantID, channel, plainValue string) (bool, error) {
 	hash := hashValue(plainValue)
 	var exists bool
-	err := pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT EXISTS(
 			SELECT 1 FROM suppressions
 			WHERE tenant_id = $1 AND channel = $2 AND value_hash = $3
@@ -49,9 +49,9 @@ func IsSuppressed(ctx context.Context, pool *pgxpool.Pool, tenantID, channel, pl
 }
 
 // AddSuppression inserts a suppression record (idempotent).
-func AddSuppression(ctx context.Context, pool *pgxpool.Pool, tenantID, channel, plainValue, reason string) error {
+func AddSuppression(ctx context.Context, q database.Querier, tenantID, channel, plainValue, reason string) error {
 	hash := hashValue(plainValue)
-	_, err := pool.Exec(ctx,
+	_, err := q.Exec(ctx,
 		`INSERT INTO suppressions (tenant_id, channel, value_hash, reason)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT DO NOTHING`,
@@ -61,8 +61,8 @@ func AddSuppression(ctx context.Context, pool *pgxpool.Pool, tenantID, channel, 
 }
 
 // Unsubscribe sets is_opted_in = false for all channels (or a specific channel).
-func Unsubscribe(ctx context.Context, pool *pgxpool.Pool, tenantID, subscriberID, channel string) error {
-	_, err := pool.Exec(ctx,
+func Unsubscribe(ctx context.Context, q database.Querier, tenantID, subscriberID, channel string) error {
+	_, err := q.Exec(ctx,
 		`INSERT INTO preferences (tenant_id, subscriber_id, channel, category, is_opted_in)
 		 VALUES ($1, $2, $3, 'all', FALSE)
 		 ON CONFLICT (tenant_id, subscriber_id, channel, category)
@@ -73,8 +73,8 @@ func Unsubscribe(ctx context.Context, pool *pgxpool.Pool, tenantID, subscriberID
 }
 
 // EraseSubscriber hard-deletes PII for DPDP right-to-erasure.
-func EraseSubscriber(ctx context.Context, pool *pgxpool.Pool, tenantID, subscriberID string) error {
-	_, err := pool.Exec(ctx,
+func EraseSubscriber(ctx context.Context, q database.Querier, tenantID, subscriberID string) error {
+	_, err := q.Exec(ctx,
 		`UPDATE subscribers
 		 SET email_encrypted = NULL,
 		     phone_encrypted = NULL,

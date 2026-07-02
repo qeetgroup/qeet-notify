@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/qeetgroup/qeet-notify/platform/api/middleware"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 )
 
 type workflowRow struct {
@@ -38,6 +39,7 @@ type workflowRunRow struct {
 func ListWorkflows(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 
 		limit := 50
 		offset := 0
@@ -52,7 +54,7 @@ func ListWorkflows(pool *pgxpool.Pool) http.HandlerFunc {
 			}
 		}
 
-		rows, err := pool.Query(r.Context(),
+		rows, err := q.Query(r.Context(),
 			`SELECT id, name, trigger_event, steps, is_active, created_at, updated_at
 			 FROM workflows WHERE tenant_id = $1
 			 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
@@ -88,11 +90,12 @@ func ListWorkflows(pool *pgxpool.Pool) http.HandlerFunc {
 func GetWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
 		var wf workflowRow
 		var steps []byte
-		err := pool.QueryRow(r.Context(),
+		err := q.QueryRow(r.Context(),
 			`SELECT id, name, trigger_event, steps, is_active, created_at, updated_at
 			 FROM workflows WHERE id = $1 AND tenant_id = $2`,
 			id, tenantID,
@@ -113,6 +116,7 @@ func GetWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 func CreateWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 
 		var req struct {
 			Name         string `json:"name"`
@@ -133,7 +137,7 @@ func CreateWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 		steps, _ := json.Marshal(req.Steps)
 
 		var id string
-		err := pool.QueryRow(r.Context(),
+		err := q.QueryRow(r.Context(),
 			`INSERT INTO workflows (tenant_id, name, trigger_event, steps)
 			 VALUES ($1, $2, $3, $4) RETURNING id`,
 			tenantID, req.Name, req.TriggerEvent, steps,
@@ -153,6 +157,7 @@ func CreateWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 func UpdateWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
 		var req struct {
@@ -167,7 +172,7 @@ func UpdateWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 
 		var cur workflowRow
 		var stepsBytes []byte
-		err := pool.QueryRow(r.Context(),
+		err := q.QueryRow(r.Context(),
 			`SELECT id, name, trigger_event, steps, is_active, created_at, updated_at
 			 FROM workflows WHERE id=$1 AND tenant_id=$2`,
 			id, tenantID,
@@ -188,7 +193,7 @@ func UpdateWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 			stepsBytes, _ = json.Marshal(req.Steps)
 		}
 
-		_, err = pool.Exec(r.Context(),
+		_, err = q.Exec(r.Context(),
 			`UPDATE workflows SET name=$1, trigger_event=$2, steps=$3, updated_at=NOW()
 			 WHERE id=$4 AND tenant_id=$5`,
 			cur.Name, cur.TriggerEvent, stepsBytes, id, tenantID,
@@ -207,9 +212,10 @@ func UpdateWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 func ArchiveWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
-		result, err := pool.Exec(r.Context(),
+		result, err := q.Exec(r.Context(),
 			`UPDATE workflows SET is_active=FALSE, updated_at=NOW() WHERE id=$1 AND tenant_id=$2`,
 			id, tenantID,
 		)
@@ -225,9 +231,10 @@ func ArchiveWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 func ActivateWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
-		result, err := pool.Exec(r.Context(),
+		result, err := q.Exec(r.Context(),
 			`UPDATE workflows SET is_active=TRUE, updated_at=NOW() WHERE id=$1 AND tenant_id=$2`,
 			id, tenantID,
 		)
@@ -244,9 +251,10 @@ func ActivateWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 func PauseWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
-		result, err := pool.Exec(r.Context(),
+		result, err := q.Exec(r.Context(),
 			`UPDATE workflows SET is_active=FALSE, updated_at=NOW() WHERE id=$1 AND tenant_id=$2`,
 			id, tenantID,
 		)
@@ -263,6 +271,7 @@ func PauseWorkflow(pool *pgxpool.Pool) http.HandlerFunc {
 func ListWorkflowRuns(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		workflowID := chi.URLParam(r, "id")
 
 		limit := 20
@@ -272,7 +281,7 @@ func ListWorkflowRuns(pool *pgxpool.Pool) http.HandlerFunc {
 			}
 		}
 
-		rows, err := pool.Query(r.Context(),
+		rows, err := q.Query(r.Context(),
 			`SELECT id, workflow_id, subscriber_id, trigger_event, status,
 			        current_step_index, error, created_at, updated_at
 			 FROM workflow_runs

@@ -12,6 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
+
+	"github.com/qeetgroup/qeet-notify/platform/database"
 )
 
 // InboundEmailWebhook handles provider delivery/bounce/complaint callbacks.
@@ -91,51 +93,62 @@ func extractEmailEvent(provider string, payload map[string]any) (eventType, msgI
 }
 
 func processEmailEvent(ctx context.Context, pool *pgxpool.Pool, encKey, provider, providerMsgID, eventType string) {
-	// Look up the notification by provider_message_id. Decrypt the email so the
-	// suppression hash is computed over plaintext (matching preferences.hashValue).
-	var notifID, tenantID, subscriberID, emailPlain string
+	// Cross-tenant lookup of the notification by provider_message_id (the webhook
+	// has no tenant context). notifications is not RLS-forced, so this works on
+	// the shared pool; it yields the tenant for the scoped work below.
+	var notifID, tenantID, subscriberID string
 	err := pool.QueryRow(ctx,
-		`SELECT n.id, n.tenant_id, n.subscriber_id, COALESCE(notify_decrypt(s.email_encrypted, $3), '')
-		 FROM notifications n
-		 LEFT JOIN subscribers s ON s.id = n.subscriber_id
-		 WHERE n.provider_message_id = $1 AND n.provider = $2
+		`SELECT id, tenant_id, subscriber_id FROM notifications
+		 WHERE provider_message_id = $1 AND provider = $2
 		 LIMIT 1`,
-		providerMsgID, provider, encKey,
-	).Scan(&notifID, &tenantID, &subscriberID, &emailPlain)
+		providerMsgID, provider,
+	).Scan(&notifID, &tenantID, &subscriberID)
 	if err != nil {
 		log.Error().Err(err).Str("provider_msg_id", providerMsgID).Msg("webhook: notification not found")
 		return
 	}
 
-	// Record the delivery event.
-	pool.Exec(ctx, //nolint:errcheck
-		`INSERT INTO delivery_events (tenant_id, notification_id, event_type, provider, occurred_at)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		tenantID, notifID, eventType, provider, time.Now(),
-	)
+	// Everything else is tenant-scoped (subscribers + suppressions are RLS-forced).
+	_ = database.RunInTenant(ctx, pool, tenantID, func(ctx context.Context, q database.Querier) error {
+		// Decrypt the email so the suppression hash is computed over plaintext
+		// (matching preferences.hashValue).
+		var emailPlain string
+		q.QueryRow(ctx, //nolint:errcheck
+			`SELECT COALESCE(notify_decrypt(email_encrypted, $2), '') FROM subscribers WHERE id = $1`,
+			subscriberID, encKey,
+		).Scan(&emailPlain)
 
-	// Hard bounces and spam complaints → add to suppressions.
-	if (eventType == "bounced" || eventType == "complained") && emailPlain != "" {
-		hash := sha256.Sum256([]byte(emailPlain))
-		reason := "hard_bounce"
-		if eventType == "complained" {
-			reason = "spam_complaint"
-		}
-		pool.Exec(ctx, //nolint:errcheck
-			`INSERT INTO suppressions (tenant_id, channel, value_hash, reason)
-			 VALUES ($1, 'email', $2, $3)
-			 ON CONFLICT DO NOTHING`,
-			tenantID, hex.EncodeToString(hash[:]), reason,
+		// Record the delivery event.
+		q.Exec(ctx, //nolint:errcheck
+			`INSERT INTO delivery_events (tenant_id, notification_id, event_type, provider, occurred_at)
+			 VALUES ($1, $2, $3, $4, $5)`,
+			tenantID, notifID, eventType, provider, time.Now(),
 		)
-	}
 
-	// Update notification status.
-	newStatus := eventType
-	if eventType == "bounced" || eventType == "complained" {
-		newStatus = "failed"
-	}
-	pool.Exec(ctx, //nolint:errcheck
-		`UPDATE notifications SET status = $1, updated_at = NOW() WHERE id = $2`,
-		newStatus, notifID,
-	)
+		// Hard bounces and spam complaints → add to suppressions.
+		if (eventType == "bounced" || eventType == "complained") && emailPlain != "" {
+			hash := sha256.Sum256([]byte(emailPlain))
+			reason := "hard_bounce"
+			if eventType == "complained" {
+				reason = "spam_complaint"
+			}
+			q.Exec(ctx, //nolint:errcheck
+				`INSERT INTO suppressions (tenant_id, channel, value_hash, reason)
+				 VALUES ($1, 'email', $2, $3)
+				 ON CONFLICT DO NOTHING`,
+				tenantID, hex.EncodeToString(hash[:]), reason,
+			)
+		}
+
+		// Update notification status.
+		newStatus := eventType
+		if eventType == "bounced" || eventType == "complained" {
+			newStatus = "failed"
+		}
+		q.Exec(ctx, //nolint:errcheck
+			`UPDATE notifications SET status = $1, updated_at = NOW() WHERE id = $2`,
+			newStatus, notifID,
+		)
+		return nil
+	})
 }
