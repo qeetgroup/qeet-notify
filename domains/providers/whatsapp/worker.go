@@ -12,7 +12,9 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/qeetgroup/qeet-notify/domains/routing"
+	"github.com/qeetgroup/qeet-notify/domains/subscribers/preferences"
 	"github.com/qeetgroup/qeet-notify/domains/workflows/engine"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 	"github.com/qeetgroup/qeet-notify/platform/messaging"
 )
 
@@ -79,19 +81,34 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 	if err := json.Unmarshal(msg.Data(), &job); err != nil {
 		return fmt.Errorf("unmarshal wa job: %w", err)
 	}
+	// Run the pipeline in a tenant-scoped tx so RLS applies (Module 36).
+	return database.RunInTenant(ctx, w.pool, job.TenantID, func(ctx context.Context, _ database.Querier) error {
+		return w.process(ctx, job)
+	})
+}
 
+func (w *Worker) process(ctx context.Context, job engine.ChannelJob) error {
 	// Fetch subscriber whatsapp_id.
 	var waID string
-	if err := w.pool.QueryRow(ctx,
+	if err := database.FromContext(ctx, w.pool).QueryRow(ctx,
 		`SELECT COALESCE(whatsapp_id,'') FROM subscribers WHERE id = $1 AND tenant_id = $2`,
 		job.SubscriberID, job.TenantID,
 	).Scan(&waID); err != nil || waID == "" {
 		return fmt.Errorf("fetch subscriber wa_id: %w", err)
 	}
 
+	// Suppression check: never send to a suppressed WhatsApp id (Module 24).
+	if suppressed, serr := preferences.IsSuppressed(ctx, database.FromContext(ctx, w.pool), job.TenantID, "whatsapp", waID); serr != nil {
+		return fmt.Errorf("suppression check: %w", serr) // retry via NATS; do not send
+	} else if suppressed {
+		_, _ = database.FromContext(ctx, w.pool).Exec(ctx, `UPDATE notifications SET status = 'suppressed', updated_at = NOW() WHERE id = $1`, job.NotificationID)
+		w.recordDelivery(ctx, job, "suppressed", "")
+		return nil // ack; suppressed
+	}
+
 	// Fetch DLT template metadata (category, carrier='meta').
 	var tmplName, langCode, categoryStr string
-	if err := w.pool.QueryRow(ctx,
+	if err := database.FromContext(ctx, w.pool).QueryRow(ctx,
 		`SELECT template_id_ext, COALESCE(metadata->>'language_code','en_US'), category
 		 FROM dlt_templates
 		 WHERE id = $1 AND tenant_id = $2`,
@@ -126,7 +143,7 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 	}
 
 	w.recordDelivery(ctx, job, "sent", providerName)
-	_, execErr := w.pool.Exec(ctx,
+	_, execErr := database.FromContext(ctx, w.pool).Exec(ctx,
 		`UPDATE notifications SET status = 'sent', provider = $1, provider_message_id = $2, updated_at = NOW()
 		 WHERE id = $3`,
 		providerName, result.ProviderMessageID, job.NotificationID,
@@ -136,7 +153,7 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 
 func (w *Worker) sendWithFallback(ctx context.Context, msg *Message, tenantID string) (*SendResult, string, error) {
 	var providers []Provider
-	if records, err := routing.Load(ctx, w.pool, tenantID, "whatsapp", w.encKey); err != nil {
+	if records, err := routing.Load(ctx, database.FromContext(ctx, w.pool), tenantID, "whatsapp", w.encKey); err != nil {
 		w.log.Warn().Err(err).Msg("routing load failed; using static whatsapp provider")
 	} else if dbProviders, err := BuildProviders(records); err != nil {
 		w.log.Warn().Err(err).Msg("routing build failed; using static whatsapp provider")

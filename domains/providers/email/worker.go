@@ -11,8 +11,10 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/qeetgroup/qeet-notify/domains/routing"
+	"github.com/qeetgroup/qeet-notify/domains/subscribers/preferences"
 	"github.com/qeetgroup/qeet-notify/domains/templates/rendering"
 	"github.com/qeetgroup/qeet-notify/domains/workflows/engine"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 	"github.com/qeetgroup/qeet-notify/platform/messaging"
 )
 
@@ -79,10 +81,19 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 	if err := json.Unmarshal(msg.Data(), &job); err != nil {
 		return fmt.Errorf("unmarshal job: %w", err)
 	}
+	// Run the pipeline in a tenant-scoped tx so RLS applies (Module 36). Inner
+	// queries pick up the tx via database.FromContext.
+	return database.RunInTenant(ctx, w.pool, job.TenantID, func(ctx context.Context, _ database.Querier) error {
+		return w.handleJob(ctx, job)
+	})
+}
 
+// handleJob runs the full send pipeline for a decoded job. Split out from handle
+// so it can be exercised in tests without a live NATS message.
+func (w *Worker) handleJob(ctx context.Context, job engine.ChannelJob) error {
 	// Fetch + decrypt subscriber email from DB.
 	var toEmail string
-	err := w.pool.QueryRow(ctx,
+	err := database.FromContext(ctx, w.pool).QueryRow(ctx,
 		`SELECT COALESCE(notify_decrypt(email_encrypted, $3), '') FROM subscribers WHERE id = $1 AND tenant_id = $2`,
 		job.SubscriberID, job.TenantID, w.encKey,
 	).Scan(&toEmail)
@@ -90,7 +101,15 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 		return fmt.Errorf("fetch subscriber email: %w", err)
 	}
 
-	rendered, err := rendering.RenderEmail(ctx, w.pool, job.TenantID, job.TemplateID, job.Payload)
+	// Suppression check: never send to a suppressed address (Module 24).
+	if suppressed, serr := preferences.IsSuppressed(ctx, database.FromContext(ctx, w.pool), job.TenantID, "email", toEmail); serr != nil {
+		return fmt.Errorf("suppression check: %w", serr) // retry via NATS; do not send
+	} else if suppressed {
+		w.markSuppressed(ctx, job)
+		return nil // ack; suppressed
+	}
+
+	rendered, err := rendering.RenderEmail(ctx, database.FromContext(ctx, w.pool), job.TenantID, job.TemplateID, job.Payload)
 	if err != nil {
 		return err
 	}
@@ -118,7 +137,7 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 	}
 
 	// Update notification status + provider message ID.
-	_, err = w.pool.Exec(ctx,
+	_, err = database.FromContext(ctx, w.pool).Exec(ctx,
 		`UPDATE notifications SET status = 'sent', provider = $1, provider_message_id = $2, updated_at = NOW()
 		 WHERE id = $3`,
 		providerName, result.ProviderMessageID, job.NotificationID,
@@ -129,7 +148,7 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 func (w *Worker) sendWithFallback(ctx context.Context, msg *Message, tenantID string) (*SendResult, string, error) {
 	// Prefer tenant-specific providers from DB; fall back to static startup config.
 	providers := w.staticProviders()
-	if records, err := routing.Load(ctx, w.pool, tenantID, "email", w.encKey); err != nil {
+	if records, err := routing.Load(ctx, database.FromContext(ctx, w.pool), tenantID, "email", w.encKey); err != nil {
 		w.log.Warn().Err(err).Msg("routing load failed; using static email providers")
 	} else if dbProviders, err := BuildProviders(records); err != nil {
 		w.log.Warn().Err(err).Msg("routing build failed; using static email providers")
@@ -179,4 +198,15 @@ func (w *Worker) recordDelivery(ctx context.Context, job engine.ChannelJob, even
 		"error":           errStr,
 	})
 	_, _ = w.js.Publish(ctx, subject, payload)
+}
+
+// markSuppressed flags a notification that was blocked by the suppression list
+// and records a "suppressed" delivery event (no provider send occurs).
+func (w *Worker) markSuppressed(ctx context.Context, job engine.ChannelJob) {
+	_, _ = database.FromContext(ctx, w.pool).Exec(ctx,
+		`UPDATE notifications SET status = 'suppressed', updated_at = NOW() WHERE id = $1`,
+		job.NotificationID,
+	)
+	w.recordDelivery(ctx, job, "suppressed", "", nil)
+	w.log.Info().Str("notification_id", job.NotificationID).Msg("email suppressed")
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/qeetgroup/qeet-notify/domains/workflows/engine"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 	"github.com/qeetgroup/qeet-notify/platform/messaging"
 )
 
@@ -100,10 +101,16 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 	if err := json.Unmarshal(msg.Data(), &job); err != nil {
 		return fmt.Errorf("unmarshal webhook job: %w", err)
 	}
+	// Run the pipeline in a tenant-scoped tx so RLS applies (Module 36).
+	return database.RunInTenant(ctx, w.pool, job.TenantID, func(ctx context.Context, _ database.Querier) error {
+		return w.process(ctx, job)
+	})
+}
 
+func (w *Worker) process(ctx context.Context, job engine.ChannelJob) error {
 	// Load + decrypt webhook endpoint config for this tenant.
 	var configJSON string
-	if err := w.pool.QueryRow(ctx,
+	if err := database.FromContext(ctx, w.pool).QueryRow(ctx,
 		`SELECT notify_decrypt(config_encrypted, $2) FROM provider_configs
 		 WHERE tenant_id = $1 AND channel = 'webhook' AND is_active
 		 ORDER BY priority LIMIT 1`,
@@ -148,7 +155,7 @@ func (w *Worker) handle(ctx context.Context, msg jetstream.Msg) error {
 	// Record success delivery event.
 	w.recordDelivery(ctx, job, "delivered", resp.StatusCode)
 
-	_, err = w.pool.Exec(ctx,
+	_, err = database.FromContext(ctx, w.pool).Exec(ctx,
 		`UPDATE notifications SET status = 'delivered', updated_at = NOW() WHERE id = $1`,
 		job.NotificationID,
 	)

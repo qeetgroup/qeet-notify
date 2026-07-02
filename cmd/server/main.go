@@ -80,9 +80,11 @@ func main() {
 		r.Use(apimw.Auth(tenantLookup))
 		r.Use(apimw.ScopeGuard())
 		r.Use(apimw.RateLimit(rdb, 1000, time.Minute))
+		r.Use(apimw.Audit(pool))
+		r.Use(apimw.TenantTx(pool))
 
 		// Events
-		r.Post("/events", handler.NewTriggerEvent(nc.JS))
+		r.Post("/events", handler.NewTriggerEvent(nc.JS, rdb))
 
 		// Templates
 		r.Get("/templates", handler.ListTemplates(pool))
@@ -110,6 +112,7 @@ func main() {
 		r.Delete("/subscribers/{subscriberID}", handler.DeleteSubscriber(pool))
 		r.Get("/subscribers/{subscriberID}/preferences", handler.GetPreferences(pool))
 		r.Put("/subscribers/{subscriberID}/preferences", handler.UpdatePreferences(pool))
+		r.Get("/subscribers/{subscriberID}/data", handler.ExportSubscriberData(pool, cfg.EncryptionKey))
 
 		// Provider configs
 		r.Get("/providers", handler.ListProviders(pool))

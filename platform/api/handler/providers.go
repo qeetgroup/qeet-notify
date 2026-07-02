@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/qeetgroup/qeet-notify/platform/api/middleware"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 )
 
 type providerRow struct {
@@ -25,8 +26,9 @@ type providerRow struct {
 func ListProviders(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 
-		rows, err := pool.Query(r.Context(),
+		rows, err := q.Query(r.Context(),
 			`SELECT id, channel, provider, priority, is_active, created_at, updated_at
 			 FROM provider_configs WHERE tenant_id = $1 ORDER BY channel, priority`,
 			tenantID,
@@ -59,6 +61,7 @@ func ListProviders(pool *pgxpool.Pool) http.HandlerFunc {
 func CreateProvider(pool *pgxpool.Pool, encKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 
 		var req struct {
 			Channel  string         `json:"channel"`
@@ -80,7 +83,7 @@ func CreateProvider(pool *pgxpool.Pool, encKey string) http.HandlerFunc {
 		configJSON, _ := json.Marshal(req.Config)
 
 		var id string
-		err := pool.QueryRow(r.Context(),
+		err := q.QueryRow(r.Context(),
 			`INSERT INTO provider_configs (tenant_id, channel, provider, priority, config_encrypted)
 			 VALUES ($1, $2, $3, $4, pgp_sym_encrypt($5::text, $6)) RETURNING id`,
 			tenantID, req.Channel, req.Provider, req.Priority, string(configJSON), encKey,
@@ -100,6 +103,7 @@ func CreateProvider(pool *pgxpool.Pool, encKey string) http.HandlerFunc {
 func UpdateProvider(pool *pgxpool.Pool, encKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
 		var req struct {
@@ -114,7 +118,7 @@ func UpdateProvider(pool *pgxpool.Pool, encKey string) http.HandlerFunc {
 
 		if req.Config != nil {
 			configJSON, _ := json.Marshal(req.Config)
-			_, err := pool.Exec(r.Context(),
+			_, err := q.Exec(r.Context(),
 				`UPDATE provider_configs
 				 SET config_encrypted = pgp_sym_encrypt($1::text, $2), updated_at = NOW()
 				 WHERE id = $3 AND tenant_id = $4`,
@@ -126,13 +130,13 @@ func UpdateProvider(pool *pgxpool.Pool, encKey string) http.HandlerFunc {
 			}
 		}
 		if req.Priority != nil {
-			pool.Exec(r.Context(), //nolint:errcheck
+			q.Exec(r.Context(), //nolint:errcheck
 				`UPDATE provider_configs SET priority=$1, updated_at=NOW() WHERE id=$2 AND tenant_id=$3`,
 				*req.Priority, id, tenantID,
 			)
 		}
 		if req.IsActive != nil {
-			pool.Exec(r.Context(), //nolint:errcheck
+			q.Exec(r.Context(), //nolint:errcheck
 				`UPDATE provider_configs SET is_active=$1, updated_at=NOW() WHERE id=$2 AND tenant_id=$3`,
 				*req.IsActive, id, tenantID,
 			)
@@ -147,9 +151,10 @@ func UpdateProvider(pool *pgxpool.Pool, encKey string) http.HandlerFunc {
 func DeleteProvider(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
-		result, err := pool.Exec(r.Context(),
+		result, err := q.Exec(r.Context(),
 			`DELETE FROM provider_configs WHERE id=$1 AND tenant_id=$2`,
 			id, tenantID,
 		)

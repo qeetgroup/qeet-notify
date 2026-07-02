@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/qeetgroup/qeet-notify/platform/api/middleware"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 )
 
 type templateRow struct {
@@ -30,6 +31,7 @@ type templateRow struct {
 func ListTemplates(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 
 		limit := 50
 		offset := 0
@@ -60,7 +62,7 @@ func ListTemplates(pool *pgxpool.Pool) http.HandlerFunc {
 			args = append(args, limit, offset)
 		}
 
-		rows, err := pool.Query(r.Context(), query, args...)
+		rows, err := q.Query(r.Context(), query, args...)
 		if err != nil {
 			http.Error(w, `{"error":"query failed"}`, http.StatusInternalServerError)
 			return
@@ -91,11 +93,12 @@ func ListTemplates(pool *pgxpool.Pool) http.HandlerFunc {
 func GetTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
 		var t templateRow
 		var meta []byte
-		err := pool.QueryRow(r.Context(),
+		err := q.QueryRow(r.Context(),
 			`SELECT id, name, channel, locale, subject, body, metadata, is_active,
 			        COALESCE((metadata->>'version')::int, 1), created_at, updated_at
 			 FROM templates WHERE id = $1 AND tenant_id = $2`,
@@ -117,6 +120,7 @@ func GetTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 func CreateTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 
 		var req struct {
 			Name     string         `json:"name"`
@@ -144,7 +148,7 @@ func CreateTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 		meta, _ := json.Marshal(req.Metadata)
 
 		var id string
-		err := pool.QueryRow(r.Context(),
+		err := q.QueryRow(r.Context(),
 			`INSERT INTO templates (tenant_id, name, channel, locale, subject, body, metadata)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
 			tenantID, req.Name, req.Channel, req.Locale, req.Subject, req.Body, meta,
@@ -164,6 +168,7 @@ func CreateTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 func UpdateTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
 		var req struct {
@@ -182,7 +187,7 @@ func UpdateTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 		// Fetch current to merge
 		var cur templateRow
 		var curMeta []byte
-		err := pool.QueryRow(r.Context(),
+		err := q.QueryRow(r.Context(),
 			`SELECT id, name, channel, locale, subject, body, metadata, is_active,
 			        COALESCE((metadata->>'version')::int, 1), created_at, updated_at
 			 FROM templates WHERE id = $1 AND tenant_id = $2`,
@@ -220,7 +225,7 @@ func UpdateTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 		cur.Metadata["version"] = newVersion
 		meta, _ := json.Marshal(cur.Metadata)
 
-		_, err = pool.Exec(r.Context(),
+		_, err = q.Exec(r.Context(),
 			`UPDATE templates SET name=$1, subject=$2, body=$3, locale=$4, metadata=$5, is_active=$6, updated_at=NOW()
 			 WHERE id=$7 AND tenant_id=$8`,
 			cur.Name, cur.Subject, cur.Body, cur.Locale, meta, cur.IsActive, id, tenantID,
@@ -239,9 +244,10 @@ func UpdateTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 func DeleteTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
-		result, err := pool.Exec(r.Context(),
+		result, err := q.Exec(r.Context(),
 			`UPDATE templates SET is_active = FALSE, updated_at = NOW()
 			 WHERE id = $1 AND tenant_id = $2`,
 			id, tenantID,
@@ -258,11 +264,12 @@ func DeleteTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 func PublishTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantID, _ := middleware.TenantFromContext(r.Context())
+		q := database.FromContext(r.Context(), pool)
 		id := chi.URLParam(r, "id")
 
 		var curMeta []byte
 		var version int
-		err := pool.QueryRow(r.Context(),
+		err := q.QueryRow(r.Context(),
 			`SELECT metadata, COALESCE((metadata->>'version')::int, 1) FROM templates WHERE id=$1 AND tenant_id=$2`,
 			id, tenantID,
 		).Scan(&curMeta, &version)
@@ -280,7 +287,7 @@ func PublishTemplate(pool *pgxpool.Pool) http.HandlerFunc {
 		meta["published_at"] = time.Now().UTC().Format(time.RFC3339)
 		newMeta, _ := json.Marshal(meta)
 
-		_, err = pool.Exec(r.Context(),
+		_, err = q.Exec(r.Context(),
 			`UPDATE templates SET metadata=$1, updated_at=NOW() WHERE id=$2 AND tenant_id=$3`,
 			newMeta, id, tenantID,
 		)

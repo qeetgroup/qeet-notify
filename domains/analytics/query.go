@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/qeetgroup/qeet-notify/platform/database"
 )
 
 // DeliveryTotals is the all-time aggregate funnel the console dashboard and
@@ -18,8 +18,8 @@ type DeliveryTotals struct {
 }
 
 // QueryTotals returns all-time delivery event counts per funnel stage for a tenant.
-func QueryTotals(ctx context.Context, pool *pgxpool.Pool, tenantID string) (DeliveryTotals, error) {
-	rows, err := pool.Query(ctx,
+func QueryTotals(ctx context.Context, q database.Querier, tenantID string) (DeliveryTotals, error) {
+	rows, err := q.Query(ctx,
 		`SELECT event_type, COUNT(*) FROM delivery_events
 		 WHERE tenant_id = $1
 		 GROUP BY event_type`,
