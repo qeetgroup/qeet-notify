@@ -159,7 +159,7 @@ function WorkflowDetailPage() {
                 {runs.map((run) => (
                   <li key={run.id} className="flex items-center justify-between px-4 py-2.5">
                     <div>
-                      <p className="text-xs font-mono text-muted-foreground truncate max-w-[160px]">
+                      <p className="text-xs font-mono text-muted-foreground truncate max-w-40">
                         {run.id}
                       </p>
                       <p className="text-[11px] text-muted-foreground">

@@ -78,7 +78,7 @@ function SubscribersPage() {
           <SheetTrigger render={<Button />}>
             <PlusIcon /> Add Subscriber
           </SheetTrigger>
-          <SheetContent className="w-[480px] sm:max-w-[480px]">
+          <SheetContent className="w-120 sm:max-w-120">
             <SheetHeader>
               <SheetTitle>Add Subscriber</SheetTitle>
             </SheetHeader>

@@ -112,7 +112,7 @@ function DLTPage() {
           <SheetTrigger render={<Button />}>
             <PlusIcon /> Register Template
           </SheetTrigger>
-          <SheetContent className="w-[560px] sm:max-w-[560px] overflow-y-auto">
+          <SheetContent className="w-140 sm:max-w-140 overflow-y-auto">
             <SheetHeader>
               <SheetTitle>Register DLT Template</SheetTitle>
             </SheetHeader>

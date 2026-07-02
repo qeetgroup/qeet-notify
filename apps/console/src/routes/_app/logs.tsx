@@ -117,7 +117,7 @@ function LogsPage() {
               <div key={n.id} className="flex items-center justify-between px-4 py-2.5">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="min-w-0">
-                    <p className="text-xs font-medium font-mono truncate max-w-[200px]">
+                    <p className="text-xs font-medium font-mono truncate max-w-50">
                       {n.subscriber_id}
                     </p>
                     <p className="text-[11px] text-muted-foreground">

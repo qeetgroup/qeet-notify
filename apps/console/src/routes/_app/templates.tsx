@@ -97,7 +97,7 @@ function TemplatesPage() {
           <SheetTrigger render={<Button />}>
             <PlusIcon /> New Template
           </SheetTrigger>
-          <SheetContent className="w-[560px] sm:max-w-[560px] overflow-y-auto">
+          <SheetContent className="w-140 sm:max-w-140 overflow-y-auto">
             <SheetHeader>
               <SheetTitle>Create Template</SheetTitle>
             </SheetHeader>
@@ -218,7 +218,7 @@ function TemplatesPage() {
                   >
                     {t.name}
                   </Link>
-                  <p className="text-xs text-muted-foreground font-mono truncate max-w-[160px]">
+                  <p className="text-xs text-muted-foreground font-mono truncate max-w-40">
                     {t.id}
                   </p>
                 </div>

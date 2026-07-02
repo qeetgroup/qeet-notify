@@ -89,7 +89,7 @@ function WorkflowsPage() {
           <SheetTrigger render={<Button />}>
             <PlusIcon /> New Workflow
           </SheetTrigger>
-          <SheetContent className="w-[560px] sm:max-w-[560px] overflow-y-auto">
+          <SheetContent className="w-140 sm:max-w-140 overflow-y-auto">
             <SheetHeader>
               <SheetTitle>Create Workflow</SheetTitle>
             </SheetHeader>
