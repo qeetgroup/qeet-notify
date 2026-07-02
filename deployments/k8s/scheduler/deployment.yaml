@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qeet-notify-scheduler
+  namespace: qeet-notify
+  labels:
+    app: qeet-notify-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qeet-notify-scheduler
+  template:
+    metadata:
+      labels:
+        app: qeet-notify-scheduler
+    spec:
+      containers:
+        - name: scheduler
+          image: ghcr.io/qeetgroup/qeet-notify-scheduler:latest
+          envFrom:
+            - configMapRef:
+                name: qeet-notify-config
+            - secretRef:
+                name: qeet-notify-secrets
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"

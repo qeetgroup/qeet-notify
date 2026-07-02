@@ -1,0 +1,13 @@
+replicaCount:
+  api: 1
+  worker: 1
+  workflow: 1
+  analytics: 1
+  scheduler: 1
+
+config:
+  env: staging
+
+ingress:
+  enabled: true
+  host: notify-staging.qeet.in

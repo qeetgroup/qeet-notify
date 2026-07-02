@@ -1,0 +1,46 @@
+paths:
+  /v1/audit-logs:
+    get:
+      summary: List audit log entries
+      operationId: listAuditLogs
+      tags: [Audit]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: actor
+          schema: {type: string}
+        - in: query
+          name: action
+          schema: {type: string}
+        - in: query
+          name: limit
+          schema: {type: integer, default: 50}
+        - in: query
+          name: offset
+          schema: {type: integer, default: 0}
+      responses:
+        "200":
+          description: Paginated audit log
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    actor:
+                      type: string
+                      description: API key fingerprint (SHA-256 prefix)
+                    action:
+                      type: string
+                    resource:
+                      type: string
+                    changes:
+                      type: object
+                    created_at:
+                      type: string
+                      format: date-time

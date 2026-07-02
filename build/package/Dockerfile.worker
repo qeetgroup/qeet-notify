@@ -1,0 +1,12 @@
+# Multi-stage build for the channel worker binary only.
+# Set -channel flag at runtime: -channel=email|sms|whatsapp|inapp|webhook
+FROM golang:1.25-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/qeet-notify-worker ./cmd/worker
+
+FROM gcr.io/distroless/static-debian12
+COPY --from=builder /bin/qeet-notify-worker /qeet-notify-worker
+ENTRYPOINT ["/qeet-notify-worker"]

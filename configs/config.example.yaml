@@ -1,0 +1,45 @@
+# qeet-notify configuration reference.
+# Copy to config.dev.yaml / config.staging.yaml / config.prod.yaml and fill in values.
+# All keys can also be set via environment variables (envconfig; see platform/config/config.go).
+
+server:
+  http_port: "8080"
+  env: development            # development | staging | production
+
+database:
+  url: "postgres://qeet-notify:qeet-notify@localhost:5433/qeet-notify?sslmode=disable"
+  migrations_dir: migrations
+
+nats:
+  url: "nats://localhost:4222"
+
+redis:
+  url: "redis://localhost:6379"
+
+storage:
+  s3_bucket: ""
+  s3_endpoint: "http://localhost:9000"   # blank for AWS; set for MinIO
+  s3_region: "ap-south-1"
+
+auth:
+  qeet_id_issuer: "https://api.id.qeet.in"
+  encryption_key: "CHANGE_ME_IN_PROD"    # used for pgcrypto PII field encryption
+
+providers:
+  email:
+    aws_ses_region: "ap-south-1"
+    aws_ses_access_key_id: ""
+    aws_ses_secret_access_key: ""
+    resend_api_key: ""
+
+  sms:
+    msg91_api_key: ""
+    twofactor_api_key: ""
+
+  whatsapp:
+    meta_token: ""
+    meta_phone_id: ""
+    meta_verify_token: ""
+
+observability:
+  otlp_endpoint: ""             # e.g. "localhost:4317"; blank to disable tracing

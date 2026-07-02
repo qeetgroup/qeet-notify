@@ -1,0 +1,17 @@
+apiVersion: v2
+name: qeet-notify
+description: Qeet Notify — multi-channel transactional notification platform
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - notifications
+  - email
+  - sms
+  - whatsapp
+home: https://qeet.in
+sources:
+  - https://github.com/qeetgroup/qeet-notify
+maintainers:
+  - name: Qeet Group
+    email: engineering@qeet.in

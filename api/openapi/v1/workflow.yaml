@@ -1,0 +1,132 @@
+paths:
+  /v1/workflows:
+    get:
+      summary: List workflows
+      operationId: listWorkflows
+      tags: [Workflows]
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Workflow list
+
+    post:
+      summary: Create workflow
+      operationId: createWorkflow
+      tags: [Workflows]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, trigger_event, steps]
+              properties:
+                name:
+                  type: string
+                trigger_event:
+                  type: string
+                  example: user.welcome
+                steps:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        "201":
+          description: Created
+
+  /v1/workflows/{id}:
+    get:
+      summary: Get workflow
+      operationId: getWorkflow
+      tags: [Workflows]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Workflow record
+
+    put:
+      summary: Update workflow
+      operationId: updateWorkflow
+      tags: [Workflows]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Updated
+
+    delete:
+      summary: Archive workflow
+      operationId: archiveWorkflow
+      tags: [Workflows]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "204":
+          description: Archived
+
+  /v1/workflows/{id}/activate:
+    post:
+      summary: Activate workflow
+      operationId: activateWorkflow
+      tags: [Workflows]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Activated
+
+  /v1/workflows/{id}/pause:
+    post:
+      summary: Pause workflow
+      operationId: pauseWorkflow
+      tags: [Workflows]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Paused
+
+  /v1/workflows/{id}/runs:
+    get:
+      summary: List workflow run history
+      operationId: listWorkflowRuns
+      tags: [Workflows]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Run list

@@ -54,12 +54,18 @@ cmd/
 domains/                   Business logic — bounded contexts
   analytics/               Delivery aggregation, Prometheus, TimescaleDB queries
   compliance/dlt/          TRAI DLT regex matching, promotional window, NDNC
-  providers/
-    email/                 SES + Resend providers + NOTIFY_EMAIL worker
-    sms/                   MSG91 + 2Factor providers + NOTIFY_SMS worker
-    whatsapp/              Meta Cloud API + NOTIFY_WHATSAPP worker
+  channels/                Channel queue workers (one per channel)
+    email/                 NOTIFY_EMAIL worker + inline provider types
+    sms/                   NOTIFY_SMS worker + DLT/NDNC gates
+    whatsapp/              NOTIFY_WHATSAPP worker (Meta Cloud API)
     inapp/                 NOTIFY_INAPP worker (Redis pub/sub fan-out)
     webhook/               Outbound HMAC-signed webhook worker
+    push/                  (stub — FCM/APNs not yet implemented)
+  providers/               Pure vendor adapters (interface + implementations)
+    email/                 SESProvider + ResendProvider + BuildProviders registry
+    sms/                   MSG91Provider + TwoFactorProvider + BuildProviders
+    whatsapp/              MetaProvider + BuildProviders
+    push/                  (stub — fcm/.gitkeep + apns/.gitkeep)
   subscribers/
     federation/            Qeet ID user-event → subscriber sync
     preferences/           Opt-in/out matrix + DPDP erasure
@@ -128,5 +134,5 @@ docs/                      Internal documentation
 
 ## Deployment
 
-See [deploy/](deploy/) — GHCR + SSH + `docker compose up -d`.  
+See [deployments/](deployments/) — GHCR + SSH + `docker compose up -d`.  
 Binaries: `server`, `worker`, `workflow`, `analytics`, `migrate`, `scheduler`.

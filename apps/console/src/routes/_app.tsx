@@ -1,3 +1,4 @@
+import { useAuth } from "@qeet-id/react";
 import {
   Separator,
   SidebarInset,
@@ -10,18 +11,22 @@ import { useEffect } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavUser } from "@/components/nav-user";
-import { isAuthenticated } from "@/lib/auth";
+import { keyStore } from "@/lib/api";
 
 export const Route = createFileRoute("/_app")({ component: AppLayout });
 
 function AppLayout() {
   const navigate = useNavigate();
+  const { isLoaded, isAuthenticated: qeetIdAuth } = useAuth();
 
+  // Guard: require either a qeet-id session OR an API key stored locally.
   useEffect(() => {
-    if (!isAuthenticated()) {
+    if (!isLoaded) return;
+    const hasApiKey = !!keyStore.get();
+    if (!qeetIdAuth && !hasApiKey) {
       navigate({ to: "/sign-in" as never, replace: true });
     }
-  }, [navigate]);
+  }, [isLoaded, qeetIdAuth, navigate]);
 
   return (
     <SidebarProvider>

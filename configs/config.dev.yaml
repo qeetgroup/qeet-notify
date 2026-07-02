@@ -1,0 +1,20 @@
+server:
+  http_port: "8080"
+  env: development
+
+database:
+  url: "postgres://qeet-notify:qeet-notify@localhost:5433/qeet-notify?sslmode=disable"
+
+nats:
+  url: "nats://localhost:4222"
+
+redis:
+  url: "redis://localhost:6379"
+
+storage:
+  s3_endpoint: "http://localhost:9000"
+  s3_region: "ap-south-1"
+
+auth:
+  qeet_id_issuer: "https://api.id.qeet.in"
+  encryption_key: "dev-key-change-in-prod"

@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qeet-notify-analytics
+  namespace: qeet-notify
+  labels:
+    app: qeet-notify-analytics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qeet-notify-analytics
+  template:
+    metadata:
+      labels:
+        app: qeet-notify-analytics
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: analytics
+          image: ghcr.io/qeetgroup/qeet-notify-analytics:latest
+          ports:
+            - containerPort: 9090
+              name: metrics
+          envFrom:
+            - configMapRef:
+                name: qeet-notify-config
+            - secretRef:
+                name: qeet-notify-secrets
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"

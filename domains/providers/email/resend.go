@@ -11,11 +11,13 @@ import (
 
 const resendSendURL = "https://api.resend.com/emails"
 
+// ResendProvider sends email via the Resend API.
 type ResendProvider struct {
 	apiKey string
 	client *http.Client
 }
 
+// NewResend creates a ResendProvider.
 func NewResend(apiKey string) *ResendProvider {
 	return &ResendProvider{apiKey: apiKey, client: &http.Client{}}
 }
@@ -27,20 +29,12 @@ func (p *ResendProvider) Send(ctx context.Context, msg *Message) (*SendResult, e
 	if msg.FromName != "" {
 		from = fmt.Sprintf("%s <%s>", msg.FromName, msg.From)
 	}
-
 	body := map[string]any{
-		"from":    from,
-		"to":      []string{msg.To},
-		"subject": msg.Subject,
-		"html":    msg.HTMLBody,
+		"from": from, "to": []string{msg.To}, "subject": msg.Subject, "html": msg.HTMLBody,
 	}
 	if msg.TextBody != "" {
 		body["text"] = msg.TextBody
 	}
-	if msg.ReplyTo != "" {
-		body["reply_to"] = msg.ReplyTo
-	}
-
 	payload, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, resendSendURL, bytes.NewReader(payload))
 	if err != nil {
@@ -48,18 +42,15 @@ func (p *ResendProvider) Send(ctx context.Context, msg *Message) (*SendResult, e
 	}
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	req.Header.Set("Content-Type", "application/json")
-
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("resend request: %w", err)
 	}
 	defer resp.Body.Close()
-
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("resend %d: %s", resp.StatusCode, raw)
 	}
-
 	var out struct {
 		ID string `json:"id"`
 	}

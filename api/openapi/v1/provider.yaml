@@ -1,0 +1,72 @@
+paths:
+  /v1/providers:
+    get:
+      summary: List provider configurations
+      operationId: listProviders
+      tags: [Providers]
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Provider config list (credentials redacted)
+
+    post:
+      summary: Create provider configuration
+      operationId: createProvider
+      tags: [Providers]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, provider_name, priority, config]
+              properties:
+                channel:
+                  type: string
+                  enum: [email, sms, whatsapp, push, inapp, webhook]
+                provider_name:
+                  type: string
+                  example: ses
+                priority:
+                  type: integer
+                  description: Lower number = higher priority (used for fallback ordering)
+                config:
+                  type: object
+                  description: Provider-specific credentials (encrypted at rest)
+      responses:
+        "201":
+          description: Created
+
+  /v1/providers/{id}:
+    put:
+      summary: Update provider configuration
+      operationId: updateProvider
+      tags: [Providers]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Updated
+
+    delete:
+      summary: Delete provider configuration
+      operationId: deleteProvider
+      tags: [Providers]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "204":
+          description: Deleted

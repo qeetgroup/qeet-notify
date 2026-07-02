@@ -1,0 +1,70 @@
+openapi: 3.1.0
+info:
+  title: Qeet Notify API
+  description: |
+    Multi-channel transactional notification platform.
+    Supports email, SMS, WhatsApp, in-app, and webhook channels.
+
+    Authentication: pass your API key in the `X-Qeet-Api-Key` header.
+    Scopes: `full` (all endpoints) | `read` (GET only) | `send` (POST /v1/events only).
+  version: 1.0.0
+  contact:
+    name: Qeet Group
+    url: https://qeet.in
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://notify.api.qeet.in
+    description: Production
+  - url: https://notify-staging.api.qeet.in
+    description: Staging
+  - url: http://localhost:8080
+    description: Local development
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Qeet-Api-Key
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+      required: [error]
+
+    PaginatedMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UnprocessableEntity:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

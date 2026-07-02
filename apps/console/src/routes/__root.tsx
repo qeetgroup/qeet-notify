@@ -1,3 +1,4 @@
+import { QeetIDProvider } from "@qeet-id/react";
 import { ThemeProvider } from "@qeetrix/ui";
 import type { QueryClient } from "@tanstack/react-query";
 import { TanStackDevtools } from "@tanstack/react-devtools";
@@ -7,6 +8,9 @@ import { Toaster } from "sonner";
 
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import appCss from "../styles.css?url";
+
+const QEET_ID_API_URL =
+  (import.meta.env?.VITE_QEET_ID_API_URL as string | undefined) ?? "https://api.id.qeet.in";
 
 const THEME_STORAGE_KEY = "qn-console-theme";
 
@@ -36,6 +40,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
+        <QeetIDProvider apiUrl={QEET_ID_API_URL}>
         <ThemeProvider defaultTheme="system" storageKey={THEME_STORAGE_KEY}>
           {children}
           <Toaster position="bottom-right" closeButton richColors />
@@ -47,6 +52,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             ]}
           />
         </ThemeProvider>
+        </QeetIDProvider>
         <Scripts />
       </body>
     </html>

@@ -1,0 +1,63 @@
+paths:
+  /v1/api-keys:
+    get:
+      summary: List API keys
+      operationId: listAPIKeys
+      tags: [APIKeys]
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: API key list (hashed values only — raw key shown once on creation)
+
+    post:
+      summary: Create API key
+      operationId: createAPIKey
+      tags: [APIKeys]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scope]
+              properties:
+                name:
+                  type: string
+                scope:
+                  type: string
+                  enum: [full, read, send]
+                  description: |
+                    full = all endpoints; read = GET only; send = POST /v1/events only
+      responses:
+        "201":
+          description: Created — raw key returned ONCE; store it securely
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  key:
+                    type: string
+                    description: Raw API key — shown once, not stored in plaintext
+
+  /v1/api-keys/{id}:
+    delete:
+      summary: Revoke API key
+      operationId: revokeAPIKey
+      tags: [APIKeys]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "204":
+          description: Revoked

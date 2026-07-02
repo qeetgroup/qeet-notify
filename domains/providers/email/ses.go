@@ -11,10 +11,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 )
 
+// SESProvider sends email via AWS SES v2.
 type SESProvider struct {
 	client *sesv2.Client
 }
 
+// NewSES creates a SESProvider with static credentials.
 func NewSES(region, accessKey, secretKey string) (*SESProvider, error) {
 	cfg, err := awscfg.LoadDefaultConfig(context.Background(),
 		awscfg.WithRegion(region),
@@ -33,18 +35,13 @@ func (p *SESProvider) Send(ctx context.Context, msg *Message) (*SendResult, erro
 	if msg.FromName != "" {
 		from = fmt.Sprintf("%s <%s>", msg.FromName, msg.From)
 	}
-
 	input := &sesv2.SendEmailInput{
 		FromEmailAddress: aws.String(from),
-		Destination: &types.Destination{
-			ToAddresses: []string{msg.To},
-		},
+		Destination:      &types.Destination{ToAddresses: []string{msg.To}},
 		Content: &types.EmailContent{
 			Simple: &types.Message{
 				Subject: &types.Content{Data: aws.String(msg.Subject)},
-				Body: &types.Body{
-					Html: &types.Content{Data: aws.String(msg.HTMLBody)},
-				},
+				Body:    &types.Body{Html: &types.Content{Data: aws.String(msg.HTMLBody)}},
 			},
 		},
 	}
@@ -54,7 +51,6 @@ func (p *SESProvider) Send(ctx context.Context, msg *Message) (*SendResult, erro
 	if msg.ReplyTo != "" {
 		input.ReplyToAddresses = []string{msg.ReplyTo}
 	}
-
 	out, err := p.client.SendEmail(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("ses send: %w", err)

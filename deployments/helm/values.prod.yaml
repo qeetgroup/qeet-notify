@@ -1,0 +1,19 @@
+replicaCount:
+  api: 3
+  worker: 2
+  workflow: 2
+  analytics: 1
+  scheduler: 1
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+
+ingress:
+  enabled: true
+
+resources:
+  api:
+    requests: {cpu: "200m", memory: "256Mi"}
+    limits:   {cpu: "1000m", memory: "1Gi"}

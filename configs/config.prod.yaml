@@ -1,0 +1,10 @@
+server:
+  env: production
+
+# All values injected via environment variables / Kubernetes secrets at runtime.
+# This file documents which keys are required in production — no secret values here.
+# Required env vars: DATABASE_URL, ENCRYPTION_KEY, AWS_SES_*, RESEND_API_KEY,
+#   MSG91_API_KEY, META_WHATSAPP_TOKEN, META_WHATSAPP_PHONE_ID, META_WHATSAPP_VERIFY_TOKEN
+
+auth:
+  qeet_id_issuer: "https://api.id.qeet.in"

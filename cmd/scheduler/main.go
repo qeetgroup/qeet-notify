@@ -11,7 +11,7 @@ import (
 	"github.com/qeetgroup/qeet-notify/platform/config"
 	"github.com/qeetgroup/qeet-notify/platform/database"
 	"github.com/qeetgroup/qeet-notify/platform/messaging"
-	"github.com/qeetgroup/qeet-notify/platform/observability"
+	"github.com/qeetgroup/qeet-notify/platform/telemetry"
 )
 
 // scheduler re-enqueues delayed workflow runs once their resume_at has passed.
@@ -21,7 +21,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
 		os.Exit(1)
 	}
-	log := observability.New(cfg.Env)
+	log := telemetry.NewLogger(cfg.Env)
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
