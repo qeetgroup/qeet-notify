@@ -21,7 +21,7 @@ import (
 	"github.com/qeetgroup/qeet-notify/domains/workflows/engine"
 	"github.com/qeetgroup/qeet-notify/platform/database"
 	"github.com/qeetgroup/qeet-notify/platform/messaging"
-	"github.com/qeetgroup/qeet-notify/platform/observability"
+	"github.com/qeetgroup/qeet-notify/platform/telemetry"
 )
 
 func getenv(key, def string) string {
@@ -137,7 +137,7 @@ func TestWorkflowDelayResume(t *testing.T) {
 		{ID: "s3", Type: engine.StepTypeChannel, Channel: "email", TemplateID: tmplID},
 	})
 
-	log := observability.New("test")
+	log := telemetry.NewLogger("test")
 	eng := engine.New(pool, nc, log)
 
 	// 1. New run dispatches the first channel then pauses on the delay.
@@ -250,7 +250,7 @@ func TestWorkflowCondition(t *testing.T) {
 		{ID: "gold", Type: engine.StepTypeChannel, Channel: "inapp", TemplateID: tmplID},
 	})
 
-	eng := engine.New(pool, nc, observability.New("test"))
+	eng := engine.New(pool, nc, telemetry.NewLogger("test"))
 	ev := engine.Event{TenantID: tenantID, SubscriberID: subID, Event: "itest.cond", Payload: map[string]any{"tier": "gold"}}
 	if err := eng.ProcessEvent(ctx, ev); err != nil {
 		t.Fatalf("ProcessEvent: %v", err)

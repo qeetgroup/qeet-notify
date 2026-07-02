@@ -1,0 +1,39 @@
+paths:
+  /v1/analytics/delivery:
+    get:
+      summary: Delivery analytics (30-day bucketed stats)
+      operationId: deliveryAnalytics
+      tags: [Analytics]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: channel
+          schema: {type: string, enum: [email, sms, whatsapp, inapp, webhook]}
+        - in: query
+          name: from
+          schema: {type: string, format: date-time}
+        - in: query
+          name: to
+          schema: {type: string, format: date-time}
+      responses:
+        "200":
+          description: Time-bucketed delivery stats (via TimescaleDB hypertable)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    bucket:
+                      type: string
+                      format: date-time
+                    channel:
+                      type: string
+                    sent:
+                      type: integer
+                    failed:
+                      type: integer
+                    suppressed:
+                      type: integer

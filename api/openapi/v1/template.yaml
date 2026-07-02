@@ -1,0 +1,102 @@
+paths:
+  /v1/templates:
+    get:
+      summary: List templates
+      operationId: listTemplates
+      tags: [Templates]
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Template list
+
+    post:
+      summary: Create template
+      operationId: createTemplate
+      tags: [Templates]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, channel, body]
+              properties:
+                name:
+                  type: string
+                channel:
+                  type: string
+                  enum: [email, sms, whatsapp, inapp, webhook]
+                subject:
+                  type: string
+                  description: Required for email channel
+                body:
+                  type: string
+                  description: Handlebars template body
+      responses:
+        "201":
+          description: Created
+
+  /v1/templates/{id}:
+    get:
+      summary: Get template
+      operationId: getTemplate
+      tags: [Templates]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Template record
+
+    put:
+      summary: Update template
+      operationId: updateTemplate
+      tags: [Templates]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Updated
+
+    delete:
+      summary: Delete template
+      operationId: deleteTemplate
+      tags: [Templates]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "204":
+          description: Deleted
+
+  /v1/templates/{id}/publish:
+    post:
+      summary: Publish template (set is_active=true)
+      operationId: publishTemplate
+      tags: [Templates]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Published

@@ -1,0 +1,77 @@
+paths:
+  /v1/dlt/templates:
+    get:
+      summary: List TRAI DLT templates
+      operationId: listDLTTemplates
+      tags: [DLT]
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: DLT template list
+
+    post:
+      summary: Register a TRAI DLT template
+      description: |
+        DLT (Distributed Ledger Technology) templates are mandatory for SMS in India.
+        Every outbound SMS body must match a pre-registered DLT template regex.
+      operationId: registerDLTTemplate
+      tags: [DLT]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [template_id, sender_id, category, body_regex]
+              properties:
+                template_id:
+                  type: string
+                  description: TRAI-assigned template ID
+                sender_id:
+                  type: string
+                  description: Registered Sender Header (e.g. QEETID)
+                category:
+                  type: string
+                  enum: [transactional, promotional, otp]
+                body_regex:
+                  type: string
+                  description: Regex that matches approved message bodies
+                carrier:
+                  type: string
+      responses:
+        "201":
+          description: Registered
+
+  /v1/dlt/templates/{id}:
+    put:
+      summary: Update DLT template
+      operationId: updateDLTTemplate
+      tags: [DLT]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Updated
+
+    delete:
+      summary: Delete DLT template
+      operationId: deleteDLTTemplate
+      tags: [DLT]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "204":
+          description: Deleted

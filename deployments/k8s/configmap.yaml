@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qeet-notify-config
+  namespace: qeet-notify
+data:
+  HTTP_PORT: "8080"
+  ENV: "production"
+  NATS_URL: "nats://nats.qeet-notify.svc.cluster.local:4222"
+  REDIS_URL: "redis://redis.qeet-notify.svc.cluster.local:6379"
+  S3_REGION: "ap-south-1"
+  QEET_ID_ISSUER: "https://api.id.qeet.in"
+  QEET_LOGS_OTLP_ENDPOINT: ""

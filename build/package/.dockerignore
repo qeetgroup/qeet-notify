@@ -1,0 +1,15 @@
+bin/
+apps/
+packages/
+sdk/node/
+sdk/python/
+sdk/java/
+*.md
+.git/
+.github/
+tests/
+docs/
+deployments/
+build/
+configs/
+tools/

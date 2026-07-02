@@ -10,6 +10,7 @@
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx"
   },
   "dependencies": {
+    "@qeet-id/react": "file:../../../qeet-id/sdk/js/react",
     "@qeetrix/ui": "^0.4.0",
     "@tailwindcss/vite": "^4.1.0",
     "@tanstack/react-devtools": "^0.10.5",

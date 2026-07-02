@@ -1,0 +1,150 @@
+paths:
+  /v1/subscribers:
+    get:
+      summary: List subscribers
+      operationId: listSubscribers
+      tags: [Subscribers]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 20}
+        - in: query
+          name: offset
+          schema: {type: integer, default: 0}
+      responses:
+        "200":
+          description: Paginated subscriber list
+        "401":
+          $ref: "./_base.yaml#/components/responses/Unauthorized"
+
+    post:
+      summary: Create a subscriber
+      operationId: createSubscriber
+      tags: [Subscribers]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [external_id]
+              properties:
+                external_id:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                phone:
+                  type: string
+                  description: E.164 format e.g. +919876543210
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "201":
+          description: Subscriber created
+
+  /v1/subscribers/{subscriberID}:
+    get:
+      summary: Get subscriber
+      operationId: getSubscriber
+      tags: [Subscribers]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: subscriberID
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Subscriber record
+        "404":
+          $ref: "./_base.yaml#/components/responses/NotFound"
+
+    put:
+      summary: Update subscriber
+      operationId: updateSubscriber
+      tags: [Subscribers]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: subscriberID
+          required: true
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated
+
+    delete:
+      summary: Delete subscriber
+      operationId: deleteSubscriber
+      tags: [Subscribers]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: subscriberID
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "204":
+          description: Deleted
+
+  /v1/subscribers/{subscriberID}/preferences:
+    get:
+      summary: Get notification preferences
+      operationId: getPreferences
+      tags: [Subscribers]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: subscriberID
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Preferences map (channel → opted_in)
+
+    put:
+      summary: Update notification preferences
+      operationId: updatePreferences
+      tags: [Subscribers]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: subscriberID
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Updated
+
+  /v1/subscribers/{subscriberID}/data:
+    get:
+      summary: Export subscriber PII data (DPDP DSR)
+      operationId: exportSubscriberData
+      tags: [Subscribers]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: subscriberID
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Full subscriber data export including consent ledger

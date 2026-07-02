@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qeet-notify"
+version = "0.1.0"
+description = "Official Python SDK for Qeet Notify"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Qeet Group", email = "eng@qeet.in" }]
+keywords = ["notifications", "email", "sms", "whatsapp", "transactional"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+  "httpx>=0.27",
+  "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.23",
+  "respx>=0.21",
+  "ruff>=0.4",
+  "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://notify.qeet.in"
+Documentation = "https://docs.qeet.in/notify"
+Repository = "https://github.com/qeetgroup/qeet-notify"
+
+[tool.hatch.build.targets.wheel]
+packages = ["qeet_notify"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

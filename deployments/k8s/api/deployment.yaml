@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qeet-notify-api
+  namespace: qeet-notify
+  labels:
+    app: qeet-notify-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: qeet-notify-api
+  template:
+    metadata:
+      labels:
+        app: qeet-notify-api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/qeetgroup/qeet-notify-server:latest
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 8082
+              name: sse
+          envFrom:
+            - configMapRef:
+                name: qeet-notify-config
+            - secretRef:
+                name: qeet-notify-secrets
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

@@ -1,0 +1,67 @@
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [System]
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /readyz:
+    get:
+      summary: Readiness check
+      operationId: readinessCheck
+      tags: [System]
+      responses:
+        "200":
+          description: Service is ready
+
+  /v1/events:
+    post:
+      summary: Trigger a notification event
+      description: |
+        Publishes an event that matches against active workflow triggers.
+        Idempotent if `Idempotency-Key` header is provided (Redis SETNX, 24h TTL).
+      operationId: triggerEvent
+      tags: [Events]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+          description: Client-generated UUID to deduplicate retries.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, subscriber_id]
+              properties:
+                event:
+                  type: string
+                  example: user.welcome
+                subscriber_id:
+                  type: string
+                  format: uuid
+                payload:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "202":
+          description: Event accepted
+        "401":
+          $ref: "./_base.yaml#/components/responses/Unauthorized"
+        "422":
+          $ref: "./_base.yaml#/components/responses/UnprocessableEntity"

@@ -1,0 +1,38 @@
+# One Deployment per channel; set CHANNEL env var to email|sms|whatsapp|inapp|webhook.
+# Deploy 5 separate Deployments with different CHANNEL values and replica counts per channel.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qeet-notify-worker-email
+  namespace: qeet-notify
+  labels:
+    app: qeet-notify-worker
+    channel: email
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: qeet-notify-worker
+      channel: email
+  template:
+    metadata:
+      labels:
+        app: qeet-notify-worker
+        channel: email
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/qeetgroup/qeet-notify-worker:latest
+          command: ["/qeet-notify-worker", "-channel=email"]
+          envFrom:
+            - configMapRef:
+                name: qeet-notify-config
+            - secretRef:
+                name: qeet-notify-secrets
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"

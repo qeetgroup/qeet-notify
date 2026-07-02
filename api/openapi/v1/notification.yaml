@@ -1,0 +1,45 @@
+paths:
+  /v1/notifications:
+    get:
+      summary: List notifications
+      operationId: listNotifications
+      tags: [Notifications]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: subscriber_id
+          schema: {type: string, format: uuid}
+        - in: query
+          name: channel
+          schema: {type: string, enum: [email, sms, whatsapp, inapp, webhook]}
+        - in: query
+          name: status
+          schema: {type: string}
+        - in: query
+          name: limit
+          schema: {type: integer, default: 20}
+        - in: query
+          name: offset
+          schema: {type: integer, default: 0}
+      responses:
+        "200":
+          description: Paginated notification list
+
+  /v1/notifications/{id}:
+    get:
+      summary: Get notification with delivery events
+      operationId: getNotification
+      tags: [Notifications]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Notification record + delivery_events history
+        "404":
+          $ref: "./_base.yaml#/components/responses/NotFound"

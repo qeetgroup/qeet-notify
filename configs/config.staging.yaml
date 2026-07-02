@@ -1,0 +1,15 @@
+server:
+  env: staging
+
+database:
+  url: "${DATABASE_URL}"
+
+nats:
+  url: "${NATS_URL}"
+
+redis:
+  url: "${REDIS_URL}"
+
+auth:
+  qeet_id_issuer: "https://api.id.qeet.in"
+  encryption_key: "${ENCRYPTION_KEY}"

@@ -8,16 +8,16 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/qeetgroup/qeet-notify/domains/providers/email"
-	"github.com/qeetgroup/qeet-notify/domains/providers/inapp"
-	"github.com/qeetgroup/qeet-notify/domains/providers/sms"
-	"github.com/qeetgroup/qeet-notify/domains/providers/webhook"
-	"github.com/qeetgroup/qeet-notify/domains/providers/whatsapp"
+	"github.com/qeetgroup/qeet-notify/domains/channels/email"
+	"github.com/qeetgroup/qeet-notify/domains/channels/inapp"
+	"github.com/qeetgroup/qeet-notify/domains/channels/sms"
+	"github.com/qeetgroup/qeet-notify/domains/channels/webhook"
+	"github.com/qeetgroup/qeet-notify/domains/channels/whatsapp"
 	"github.com/qeetgroup/qeet-notify/platform/cache"
 	"github.com/qeetgroup/qeet-notify/platform/config"
 	"github.com/qeetgroup/qeet-notify/platform/database"
 	"github.com/qeetgroup/qeet-notify/platform/messaging"
-	"github.com/qeetgroup/qeet-notify/platform/observability"
+	"github.com/qeetgroup/qeet-notify/platform/telemetry"
 )
 
 func main() {
@@ -33,7 +33,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
 		os.Exit(1)
 	}
-	log := observability.New(cfg.Env)
+	log := telemetry.NewLogger(cfg.Env)
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
